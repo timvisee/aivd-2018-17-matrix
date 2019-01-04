@@ -38,11 +38,11 @@ fn main() {
     println!("Matx A:\n{}", matrix_a);
     println!("Matx B:\n{}", matrix_b);
 
-    // let mut field = Field::empty(matrix_a, matrix_b);
-    // println!("Field:\n{}", field);
+    let mut field = Field::empty(matrix_a, matrix_b);
+    println!("Field:\n{}", field);
 
-    // println!("Started solving...");
-    // field.solve();
+    println!("Started solving...");
+    field.solve();
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -52,7 +52,7 @@ pub struct Matx {
 
 impl Matx {
     /// Construct a new matrix.
-    pub fn new() -> Self {
+    pub fn zero() -> Self {
         Self {
             m: M::zeros(),
         }
@@ -121,55 +121,58 @@ impl fmt::Display for Matx {
     }
 }
 
-// #[derive(Debug, Clone)]
-// pub struct Field<W: Dim, H: Dim, S> {
-//     left: Matx<W, H, S>,
-//     top: Matx<W, H, S>,
-//     field: Matx<W, H, S>,
-// }
+#[derive(Debug, Clone, Copy)]
+pub struct Field {
+    left: Matx,
+    top: Matx,
+    field: Matx,
+}
 
-// impl<W: Dim, H: Dim, S> Field<W, H, S> {
-//     /// Build a new empty field with the given `left` and `top` matrix.
-//     pub fn empty(left: Matx<W, H, S>, top: Matx<W, H, S>) -> Self {
-//         Self {
-//             field: Matx::new(top.m.ncols(), left.m.nrows()),
-//             left,
-//             top,
-//         }
-//     }
+impl Field {
+    /// Build a new empty field with the given `left` and `top` matrix.
+    pub fn empty(left: Matx, top: Matx) -> Self {
+        Self {
+            field: Matx::zero(),
+            left,
+            top,
+        }
+    }
 
-//     /// Attempt to solve the empty field based on the left and top matrices.
-//     pub fn solve(&mut self) {
-//         let mut row = self.left.row(0).clone();
-//         let a = row.permutation();
+    /// Attempt to solve the empty field based on the left and top matrices.
+    pub fn solve(&mut self) {
+        let rows_permutated: Vec<_> = self
+            .left
+            .iter_rows()
+            // .map(|row| row.permutation())
+            .collect();
 
-//         println!("count: {}", a.count());
-//     }
-// }
+        println!("count: {}", rows_permutated.len());
+    }
+}
 
-// impl<W: Dim, H: Dim, S> fmt::Display for Field<W, H, S> {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         // Determine the width of the left matrix, with separating spaces
-//         let left_width = max(self.left.width() as i64 * 2 - 1, 0) as usize;
+impl fmt::Display for Field {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // Determine the width of the left matrix, with separating spaces
+        let left_width = COLS * 2 - 1;
 
-//         // Print the top matrix first
-//         write!(f, "{}\n\n",
-//             self.top.to_string()
-//                 .lines()
-//                 .map(|row| format!("{}{}", vec![' '; left_width + 3].iter().join(""), row))
-//                 .join("\n")
-//         )?;
+        // Print the top matrix first
+        write!(f, "{}\n\n",
+            self.top.to_string()
+                .lines()
+                .map(|row| format!("{}{}", vec![' '; left_width + 3].iter().join(""), row))
+                .join("\n")
+        )?;
 
-//         // Print the left and field matrix
-//         write!(f, "{}\n",
-//             self.left.to_string()
-//                 .lines()
-//                 .zip(self.field.to_string().lines())
-//                 .map(|(left, field)| format!("{}   {}", left, field))
-//                 .join("\n")
-//         )
-//     }
-// }
+        // Print the left and field matrix
+        write!(f, "{}\n",
+            self.left.to_string()
+                .lines()
+                .zip(self.field.to_string().lines())
+                .map(|(left, field)| format!("{}   {}", left, field))
+                .join("\n")
+        )
+    }
+}
 
 /// Convert the given character to a number.
 fn to_number(c: char) -> u8 {
