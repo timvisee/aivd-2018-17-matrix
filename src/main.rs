@@ -7,13 +7,7 @@ use std::fs::read_to_string;
 use std::io::Result as IoResult;
 
 use itertools::Itertools;
-use nalgebra::base::{
-    Matrix as NMatrix,
-    ArrayStorage,
-    U1,
-    U12,
-    U13,
-};
+use nalgebra::base::{ArrayStorage, Matrix as NMatrix, U1, U12, U13};
 use permutator::*;
 
 const EMPTY: char = '.';
@@ -30,10 +24,8 @@ type M = NMatrix<N, R, C, S>;
 
 fn main() {
     // Load the matrices
-    let matrix_a = Matx::load("matrix_a.txt")
-        .expect("failed to load matrix A from file");
-    let matrix_b = Matx::load("matrix_b.txt")
-        .expect("failed to load matrix B from file");
+    let matrix_a = Matx::load("matrix_a.txt").expect("failed to load matrix A from file");
+    let matrix_b = Matx::load("matrix_b.txt").expect("failed to load matrix B from file");
 
     println!("Matx A:\n{}", matrix_a);
     println!("Matx B:\n{}", matrix_b);
@@ -53,9 +45,7 @@ pub struct Matx {
 impl Matx {
     /// Construct a new matrix.
     pub fn zero() -> Self {
-        Self {
-            m: M::zeros(),
-        }
+        Self { m: M::zeros() }
     }
 
     /// Construct a new matrix from the data in the given vector.
@@ -65,9 +55,6 @@ impl Matx {
         Self {
             m: RowMajorMatrix::from_vec(vec).transpose(),
         }
-        // Self {
-        //     m: M::from_vec(vec),
-        // }
     }
 
     /// Load a matrix from a file at the given path.
@@ -77,12 +64,12 @@ impl Matx {
                 .expect("failed to load matrix from file")
                 .lines()
                 .filter(|line| !line.chars().all(char::is_whitespace))
-                .map(|line| line
-                    .chars()
-                    .filter(|c| !c.is_whitespace())
-                    .map(to_number)
-                    .collect::<Vec<u8>>()
-                )
+                .map(|line| {
+                    line.chars()
+                        .filter(|c| !c.is_whitespace())
+                        .map(to_number)
+                        .collect::<Vec<u8>>()
+                })
                 .flatten()
                 .collect::<Vec<u8>>(),
         ))
@@ -92,25 +79,14 @@ impl Matx {
     ///
     /// Note: this is expensive.
     pub fn iter_rows<'a>(&'a self) -> impl Iterator<Item = Vec<u8>> + 'a {
-        (0..ROWS)
-            .map(move |r| self
-                 .m
-                 .row(r)
-                 .iter()
-                 .map(|c| *c)
-                 .collect::<Vec<u8>>()
-            )
+        (0..ROWS).map(move |r| self.m.row(r).iter().map(|c| *c).collect::<Vec<u8>>())
     }
 
     /// Convert the matrix into a humanly readable string.
     /// Characters in a row are separated by a space.
     pub fn to_string(&self) -> String {
         self.iter_rows()
-            .map(|row| row
-                 .iter()
-                 .map(|c| to_char(*c))
-                 .join(" ")
-            )
+            .map(|row| row.iter().map(|c| to_char(*c)).join(" "))
             .join("\n")
     }
 }
@@ -156,16 +132,22 @@ impl fmt::Display for Field {
         let left_width = COLS * 2 - 1;
 
         // Print the top matrix first
-        write!(f, "{}\n\n",
-            self.top.to_string()
+        write!(
+            f,
+            "{}\n\n",
+            self.top
+                .to_string()
                 .lines()
                 .map(|row| format!("{}{}", vec![' '; left_width + 3].iter().join(""), row))
                 .join("\n")
         )?;
 
         // Print the left and field matrix
-        write!(f, "{}\n",
-            self.left.to_string()
+        write!(
+            f,
+            "{}\n",
+            self.left
+                .to_string()
                 .lines()
                 .zip(self.field.to_string().lines())
                 .map(|(left, field)| format!("{}   {}", left, field))
