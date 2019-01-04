@@ -36,6 +36,7 @@ fn main() {
 
     println!("Started solving...");
     field.solve();
+    field.solve();
     println!("First solve attempt:\n{}", field);
 }
 
@@ -87,6 +88,30 @@ impl Matx {
 
     pub fn set(&mut self, row: usize, col: usize, value: N) {
         self.m[(row, col)] = value;
+    }
+
+    pub fn remove_from_row(&mut self, row: usize, value: N) {
+        self.set(
+            row,
+            self.m
+                .row(row)
+                .iter()
+                .position(|x| x == &value)
+                .expect("failed to remove item from row, does not exist"),
+            0,
+        )
+    }
+
+    pub fn remove_from_col(&mut self, col: usize, value: N) {
+        self.set(
+            self.m
+                .column(col)
+                .iter()
+                .position(|x| x == &value)
+                .expect("failed to remove item from column, does not exist"),
+            col,
+            0,
+        )
     }
 
     /// Build an iterator over matrix rows.
@@ -174,7 +199,11 @@ impl Field {
                     .iter()
                     .enumerate()
                     .filter(|(_, col)| col.iter().any(|entry| *entry == item))
-                    .for_each(|(c, _)| self.field.set(r, c, item))
+                    .for_each(|(c, _)| {
+                        self.field.set(r, c, item);
+                        self.left.remove_from_row(r, item);
+                        self.top.remove_from_col(c, item);
+                    })
                 );
         }
 
@@ -199,7 +228,11 @@ impl Field {
                     .iter()
                     .enumerate()
                     .filter(|(_, row)| row.iter().any(|entry| *entry == item))
-                    .for_each(|(r, _)| self.field.set(r, c, item))
+                    .for_each(|(r, _)| {
+                        self.field.set(r, c, item);
+                        self.left.remove_from_row(r, item);
+                        self.top.remove_from_col(c, item);
+                    })
                 );
         }
     }
