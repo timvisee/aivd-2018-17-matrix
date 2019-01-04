@@ -25,14 +25,14 @@ fn main() {
 
 #[derive(Debug, Clone)]
 pub struct Matrix {
-    m: Vec<Vec<char>>,
+    m: Vec<Vec<Option<char>>>,
 }
 
 impl Matrix {
     /// Construct a new matrix.
-    pub fn new(width: usize, height: usize, default: char) -> Self {
+    pub fn new(width: usize, height: usize) -> Self {
         Self {
-            m: vec![vec![default; width]; height],
+            m: vec![vec![None; width]; height],
         }
     }
 
@@ -46,9 +46,10 @@ impl Matrix {
                 .map(|line| line
                     .chars()
                     .filter(|c| !c.is_whitespace())
-                    .collect::<Vec<char>>()
+                    .map(|c| Some(c))
+                    .collect::<Vec<Option<char>>>()
                 )
-                .collect::<Vec<Vec<char>>>(),
+                .collect::<Vec<Vec<Option<char>>>>(),
         })
     }
 
@@ -70,7 +71,11 @@ impl Matrix {
     pub fn to_string(&self) -> String {
         self.m
             .iter()
-            .map(|row| row.iter().join(" "))
+            .map(|row| row
+                 .iter()
+                 .map(|c| c.unwrap_or(EMPTY))
+                 .join(" ")
+            )
             .join("\n")
     }
 }
@@ -91,7 +96,7 @@ pub struct Field {
 impl Field {
     pub fn from(left: Matrix, top: Matrix) -> Self {
         Self {
-            field: Matrix::new(top.width(), left.height(), EMPTY),
+            field: Matrix::new(top.width(), left.height()),
             left,
             top,
         }
