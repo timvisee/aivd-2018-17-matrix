@@ -42,9 +42,11 @@ impl Matrix {
 
 impl fmt::Display for Matrix {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for row in &self.m {
-            write!(f, "{}\n", row.iter().join(" "))?;
-        }
-        Ok(())
+        write!(f, "{}\n",
+            self.m
+                .iter()
+                .map(|row| row.iter().join(" "))
+                .join("\n"),
+        )
     }
 }
