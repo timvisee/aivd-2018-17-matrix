@@ -1,4 +1,5 @@
 extern crate itertools;
+extern crate permutator;
 
 use std::cmp::max;
 use std::fmt;
@@ -6,6 +7,7 @@ use std::fs::read_to_string;
 use std::io::Result as IoResult;
 
 use itertools::Itertools;
+use permutator::*;
 
 const EMPTY: char = '.';
 
@@ -19,8 +21,11 @@ fn main() {
     println!("Matrix A:\n{}", matrix_a);
     println!("Matrix B:\n{}", matrix_b);
 
-    let field = Field::from(matrix_a, matrix_b);
+    let mut field = Field::empty(matrix_a, matrix_b);
     println!("Field:\n{}", field);
+
+    println!("Started solving...");
+    field.solve();
 }
 
 #[derive(Debug, Clone)]
@@ -66,15 +71,25 @@ impl Matrix {
         self.m.len()
     }
 
+    /// Get a row of the matrix.
+    pub fn row(&self, row: usize) -> &Vec<Option<char>> {
+        &self.m[row]
+    }
+
+    /// Get an iterator over the rows.
+    pub fn iter_rows<'a>(&'a self) -> impl Iterator<Item = &'a Vec<Option<char>>> {
+        self.m.iter()
+    }
+
     /// Get an iterator over a row.
-    pub fn row_iter<'a>(&'a self, row: usize) -> impl Iterator<Item = Option<char>> + 'a{
+    pub fn iter_row<'a>(&'a self, row: usize) -> impl Iterator<Item = Option<char>> + 'a{
         self.m[row]
             .iter()
             .map(|c| *c)
     }
 
     /// Get an iterator over a column.
-    pub fn col_iter<'a>(&'a self, col: usize) -> impl Iterator<Item = Option<char>> + 'a{
+    pub fn iter_col<'a>(&'a self, col: usize) -> impl Iterator<Item = Option<char>> + 'a{
         self.m
             .iter()
             .map(move |row| row[col])
@@ -108,12 +123,23 @@ pub struct Field {
 }
 
 impl Field {
-    pub fn from(left: Matrix, top: Matrix) -> Self {
+    /// Build a new empty field with the given `left` and `top` matrix.
+    pub fn empty(left: Matrix, top: Matrix) -> Self {
         Self {
             field: Matrix::new(top.width(), left.height()),
             left,
             top,
         }
+    }
+
+    /// Attempt to solve the empty field based on the left and top matrices.
+    pub fn solve(&mut self) {
+        let mut row = self.left.row(0).clone();
+        let a = row.permutation();
+
+        a.for_each(|a|
+            println!("Some: {:?}", a)
+        );
     }
 }
 
