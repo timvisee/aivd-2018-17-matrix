@@ -2,13 +2,14 @@ extern crate itertools;
 extern crate nalgebra;
 extern crate permutator;
 
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::read_to_string;
 use std::io::Result as IoResult;
 
 use itertools::Itertools;
-use nalgebra::base::{ArrayStorage, Matrix as NMatrix, U1, U12, U13};
-use permutator::*;
+use nalgebra::base::{ArrayStorage, Matrix as NMatrix, U12, U13};
+// use permutator::*;
 
 const EMPTY: char = '.';
 
@@ -35,6 +36,7 @@ fn main() {
 
     println!("Started solving...");
     field.solve();
+    println!("First solve attempt:\n{}", field);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -75,11 +77,30 @@ impl Matx {
         ))
     }
 
+    pub fn get(&self, row: usize, col: usize) -> u8 {
+        self.m[(row, col)]
+    }
+
+    pub fn has(&self, row: usize, col: usize) -> bool {
+        self.get(row, col) != 0
+    }
+
+    pub fn set(&mut self, row: usize, col: usize, value: N) {
+        self.m[(row, col)] = value;
+    }
+
     /// Build an iterator over matrix rows.
     ///
     /// Note: this is expensive.
     pub fn iter_rows<'a>(&'a self) -> impl Iterator<Item = Vec<u8>> + 'a {
         (0..ROWS).map(move |r| self.m.row(r).iter().map(|c| *c).collect::<Vec<u8>>())
+    }
+
+    /// Build an iterator over matrix columns.
+    ///
+    /// Note: this is expensive.
+    pub fn iter_cols<'a>(&'a self) -> impl Iterator<Item = Vec<u8>> + 'a {
+        (0..COLS).map(move |r| self.m.column(r).iter().map(|c| *c).collect::<Vec<u8>>())
     }
 
     /// Convert the matrix into a humanly readable string.
@@ -116,13 +137,71 @@ impl Field {
 
     /// Attempt to solve the empty field based on the left and top matrices.
     pub fn solve(&mut self) {
-        let rows_permutated: Vec<_> = self
+        self.unique_intersect();
+    }
+
+    // TODO: do not clone in here
+    // TODO: remove used items from left/top matrix
+    fn unique_intersect(&mut self) {
+        // Obtain the values left in the rows and columns
+        let rows: Vec<Vec<u8>> = self
             .left
             .iter_rows()
-            // .map(|row| row.permutation())
+            .collect();
+        let cols: Vec<Vec<u8>> = self
+            .top
+            .iter_cols()
             .collect();
 
-        println!("count: {}", rows_permutated.len());
+        // Attempt each row
+        for r in 0..ROWS {
+            // Count items in current row and all empty columns
+            let row_count = count_map(&rows[r]);
+            let col_count: HashMap<u8, u8> = count_map(
+                &cols
+                    .iter()
+                    .enumerate()
+                    .filter(|(c, _)| !self.field.has(r, *c))
+                    .map(|(_, col)| col.clone())
+                    .flatten()
+                    .collect(),
+            );
+
+            // For each item with the same row/column count, fill it in
+            row_count.into_iter()
+                .filter(|(item, count)| col_count.get(item).unwrap_or(&0) == count)
+                .for_each(|(item, _)| cols
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, col)| col.iter().any(|entry| *entry == item))
+                    .for_each(|(c, _)| self.field.set(r, c, item))
+                );
+        }
+
+        // Attempt each column
+        for c in 0..COLS {
+            // Count items in current column and all empty rows
+            let row_count: HashMap<u8, u8> = count_map(
+                &rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(r, _)| !self.field.has(*r, c))
+                    .map(|(_, row)| row.clone())
+                    .flatten()
+                    .collect(),
+            );
+            let col_count = count_map(&cols[c]);
+
+            // For each item with the same row/column count, fill it in
+            col_count.into_iter()
+                .filter(|(item, count)| row_count.get(item).unwrap_or(&0) == count)
+                .for_each(|(item, _)| rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, row)| row.iter().any(|entry| *entry == item))
+                    .for_each(|(r, _)| self.field.set(r, c, item))
+                );
+        }
     }
 }
 
@@ -168,4 +247,15 @@ fn to_char(x: u8) -> char {
     } else {
         (x + 'A' as u8 - 1) as char
     }
+}
+
+/// Make an item count map for the given list of `items`.
+/// The `0` item is not counted.
+fn count_map(items: &Vec<u8>) -> HashMap<u8, u8> {
+    items.into_iter()
+        .filter(|i| **i != 0)
+        .fold(HashMap::new(), |mut map, item| {
+            *map.entry(*item).or_insert(0) += 1;
+            map
+        })
 }
