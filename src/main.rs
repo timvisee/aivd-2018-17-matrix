@@ -71,10 +71,10 @@ impl Matx {
                     line.chars()
                         .filter(|c| !c.is_whitespace())
                         .map(to_number)
-                        .collect::<Vec<u8>>()
+                        .collect::<Vec<_>>()
                 })
                 .flatten()
-                .collect::<Vec<u8>>(),
+                .collect(),
         ))
     }
 
@@ -181,14 +181,8 @@ impl Field {
     // TODO: remove used items from left/top matrix
     fn unique_intersect(&mut self) {
         // Obtain the values left in the rows and columns
-        let rows: Vec<Vec<u8>> = self
-            .left
-            .iter_rows()
-            .collect();
-        let cols: Vec<Vec<u8>> = self
-            .top
-            .iter_cols()
-            .collect();
+        let rows: Vec<Vec<u8>> = self.left.iter_rows().collect();
+        let cols: Vec<Vec<u8>> = self.top.iter_cols().collect();
 
         // Attempt each row
         for r in 0..ROWS {
@@ -205,18 +199,19 @@ impl Field {
             );
 
             // For each item with the same row/column count, fill it in
-            row_count.into_iter()
+            row_count
+                .into_iter()
                 .filter(|(item, count)| col_count.get(item).unwrap_or(&0) == count)
-                .for_each(|(item, _)| cols
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, col)| col.iter().any(|entry| *entry == item))
-                    .for_each(|(c, _)| {
-                        self.field.set(r, c, item);
-                        self.left.remove_from_row(r, item);
-                        self.top.remove_from_col(c, item);
-                    })
-                );
+                .for_each(|(item, _)| {
+                    cols.iter()
+                        .enumerate()
+                        .filter(|(_, col)| col.iter().any(|entry| *entry == item))
+                        .for_each(|(c, _)| {
+                            self.field.set(r, c, item);
+                            self.left.remove_from_row(r, item);
+                            self.top.remove_from_col(c, item);
+                        })
+                });
         }
 
         // Attempt each column
@@ -234,18 +229,19 @@ impl Field {
             let col_count = count_map(&cols[c]);
 
             // For each item with the same row/column count, fill it in
-            col_count.into_iter()
+            col_count
+                .into_iter()
                 .filter(|(item, count)| row_count.get(item).unwrap_or(&0) == count)
-                .for_each(|(item, _)| rows
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, row)| row.iter().any(|entry| *entry == item))
-                    .for_each(|(r, _)| {
-                        self.field.set(r, c, item);
-                        self.left.remove_from_row(r, item);
-                        self.top.remove_from_col(c, item);
-                    })
-                );
+                .for_each(|(item, _)| {
+                    rows.iter()
+                        .enumerate()
+                        .filter(|(_, row)| row.iter().any(|entry| *entry == item))
+                        .for_each(|(r, _)| {
+                            self.field.set(r, c, item);
+                            self.left.remove_from_row(r, item);
+                            self.top.remove_from_col(c, item);
+                        })
+                });
         }
     }
 }
@@ -297,7 +293,8 @@ fn to_char(x: u8) -> char {
 /// Make an item count map for the given list of `items`.
 /// The `0` item is not counted.
 fn count_map(items: &Vec<u8>) -> HashMap<u8, u8> {
-    items.into_iter()
+    items
+        .into_iter()
         .filter(|i| **i != 0)
         .fold(HashMap::new(), |mut map, item| {
             *map.entry(*item).or_insert(0) += 1;
