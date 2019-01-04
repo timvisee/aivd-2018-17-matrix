@@ -66,6 +66,20 @@ impl Matrix {
         self.m.len()
     }
 
+    /// Get an iterator over a row.
+    pub fn row_iter<'a>(&'a self, row: usize) -> impl Iterator<Item = Option<char>> + 'a{
+        self.m[row]
+            .iter()
+            .map(|c| *c)
+    }
+
+    /// Get an iterator over a column.
+    pub fn col_iter<'a>(&'a self, col: usize) -> impl Iterator<Item = Option<char>> + 'a{
+        self.m
+            .iter()
+            .map(move |row| row[col])
+    }
+
     /// Convert the matrix into a humanly readable string.
     /// Characters in a row are separated by a space.
     pub fn to_string(&self) -> String {
