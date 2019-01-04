@@ -30,14 +30,14 @@ fn main() {
 
 #[derive(Debug, Clone)]
 pub struct Matrix {
-    m: Vec<Vec<Option<char>>>,
+    m: Vec<Vec<u8>>,
 }
 
 impl Matrix {
     /// Construct a new matrix.
     pub fn new(width: usize, height: usize) -> Self {
         Self {
-            m: vec![vec![None; width]; height],
+            m: vec![vec![0; width]; height],
         }
     }
 
@@ -51,10 +51,10 @@ impl Matrix {
                 .map(|line| line
                     .chars()
                     .filter(|c| !c.is_whitespace())
-                    .map(|c| Some(c))
-                    .collect::<Vec<Option<char>>>()
+                    .map(to_number)
+                    .collect::<Vec<u8>>()
                 )
-                .collect::<Vec<Vec<Option<char>>>>(),
+                .collect::<Vec<Vec<u8>>>(),
         })
     }
 
@@ -72,24 +72,24 @@ impl Matrix {
     }
 
     /// Get a row of the matrix.
-    pub fn row(&self, row: usize) -> &Vec<Option<char>> {
+    pub fn row(&self, row: usize) -> &Vec<u8> {
         &self.m[row]
     }
 
     /// Get an iterator over the rows.
-    pub fn iter_rows<'a>(&'a self) -> impl Iterator<Item = &'a Vec<Option<char>>> {
+    pub fn iter_rows<'a>(&'a self) -> impl Iterator<Item = &'a Vec<u8>> {
         self.m.iter()
     }
 
     /// Get an iterator over a row.
-    pub fn iter_row<'a>(&'a self, row: usize) -> impl Iterator<Item = Option<char>> + 'a{
+    pub fn iter_row<'a>(&'a self, row: usize) -> impl Iterator<Item = u8> + 'a{
         self.m[row]
             .iter()
             .map(|c| *c)
     }
 
     /// Get an iterator over a column.
-    pub fn iter_col<'a>(&'a self, col: usize) -> impl Iterator<Item = Option<char>> + 'a{
+    pub fn iter_col<'a>(&'a self, col: usize) -> impl Iterator<Item = u8> + 'a{
         self.m
             .iter()
             .map(move |row| row[col])
@@ -102,7 +102,7 @@ impl Matrix {
             .iter()
             .map(|row| row
                  .iter()
-                 .map(|c| c.unwrap_or(EMPTY))
+                 .map(|c| to_char(*c))
                  .join(" ")
             )
             .join("\n")
@@ -137,9 +137,9 @@ impl Field {
         let mut row = self.left.row(0).clone();
         let a = row.permutation();
 
-        a.for_each(|a|
-            println!("Some: {:?}", a)
-        );
+        // a.for_each(|a|
+        //     println!("Some: {:?}", a)
+        // );
     }
 }
 
@@ -164,5 +164,19 @@ impl fmt::Display for Field {
                 .map(|(left, field)| format!("{}   {}", left, field))
                 .join("\n")
         )
+    }
+}
+
+/// Convert the given character to a number.
+fn to_number(c: char) -> u8 {
+    c as u8 - 'A' as u8 + 1
+}
+
+/// Convert a given character number into a displayable character.
+fn to_char(x: u8) -> char {
+    if x == 0 {
+        EMPTY
+    } else {
+        (x + 'A' as u8 - 1) as char
     }
 }
