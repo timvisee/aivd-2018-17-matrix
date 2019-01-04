@@ -1,0 +1,13 @@
+A B C A A A C A A A F B
+F D F H E E D D E A K C
+I D H H F F E E E I K E
+I E I J F M I G H N O E
+I I K N G M I G L O P F
+J J M O L N L O Q Q Q I
+K M R S O O L R T R R I
+L N T T O P R S W R T R
+R O X U P Q T S X R T T
+S Q X U T T V T X S V T
+X R X V V X X U Y V W U
+X T X X W X X Y Z X W V
+Z V Z X W Z X Z Z X Y X
