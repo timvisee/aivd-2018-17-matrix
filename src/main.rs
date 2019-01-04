@@ -78,18 +78,27 @@ impl Matx {
         ))
     }
 
+    /// Get the value at the given coordinate.
+    #[inline]
     pub fn get(&self, row: usize, col: usize) -> u8 {
         self.m[(row, col)]
     }
 
+    /// Check whether the given coordinate has a value set that is not `0`.
+    #[inline]
     pub fn has(&self, row: usize, col: usize) -> bool {
         self.get(row, col) != 0
     }
 
+    /// Set the `value` at the given coordinate.
+    #[inline]
     pub fn set(&mut self, row: usize, col: usize, value: N) {
         self.m[(row, col)] = value;
     }
 
+    /// Remove the given `value` from a `row` by it's index.
+    /// The cell that contains this value is set to `0`.
+    /// This panics if the given value is not found in the row.
     pub fn remove_from_row(&mut self, row: usize, value: N) {
         self.set(
             row,
@@ -102,6 +111,9 @@ impl Matx {
         )
     }
 
+    /// Remove the given `value` from a `col` by it's index.
+    /// The cell that contains this value is set to `0`.
+    /// This panics if the given value is not found in the row.
     pub fn remove_from_col(&mut self, col: usize, value: N) {
         self.set(
             self.m
