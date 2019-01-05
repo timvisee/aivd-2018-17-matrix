@@ -1,27 +1,20 @@
 extern crate itertools;
-extern crate nalgebra;
 extern crate permutator;
 
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::read_to_string;
 use std::io::Result as IoResult;
+use std::ops::{Index, IndexMut};
 
 use itertools::Itertools;
-use nalgebra::base::{ArrayStorage, Matrix as NMatrix, U12, U13};
-// use permutator::*;
 
 const EMPTY: char = '.';
 
 const ROWS: usize = 13;
 const COLS: usize = 12;
 
-/// The generic matrix types we're using
-type N = u8;
-type R = U13;
-type C = U12;
-type S = ArrayStorage<N, R, C>;
-type M = NMatrix<N, R, C, S>;
+type NumMatx = Matx<u8>;
 
 fn main() {
     // Load the matrices
@@ -40,29 +33,70 @@ fn main() {
     println!("First solve attempt:\n{}", field);
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Matx {
-    pub m: M,
+#[derive(Debug, Clone)]
+pub struct Matx<T> {
+    pub cells: Vec<T>,
 }
 
-impl Matx {
-    /// Construct a new matrix.
-    pub fn zero() -> Self {
-        Self { m: M::zeros() }
-    }
-
+impl<T> Matx<T> {
     /// Construct a new matrix from the data in the given vector.
     /// The given data should be row major.
-    fn from_vec(vec: Vec<u8>) -> Self {
-        type RowMajorMatrix = NMatrix<N, C, R, ArrayStorage<N, C, R>>;
-        Self {
-            m: RowMajorMatrix::from_vec(vec).transpose(),
-        }
+    fn new(cells: Vec<T>) -> Self {
+        Self { cells }
+    }
+
+    /// Get a slice of a row based on the given `row` index.
+    pub fn row(&self, row: usize) -> &[T] {
+        &self.cells[rc_to_i(row, 0)..rc_to_i(row + 1, 0)]
+    }
+
+    /// Iterate over a row based by the given `row` index.
+    pub fn iter_row(&self, row: usize) -> impl Iterator<Item = &T> {
+        self.row(row).iter()
+    }
+
+    /// Iterate over a column based by the given `col` index.
+    pub fn iter_col(&self, col: usize) -> impl Iterator<Item = &T> {
+        self.cells[col..].iter().step_by(ROWS).take(COLS)
+    }
+
+    /// Build an iterator over matrix rows, returning a slice for each row.
+    // TODO: can we remove the lifetime bound?
+    pub fn iter_rows<'a>(&'a self) -> impl Iterator<Item = &[T]> + 'a {
+        (0..ROWS).map(move |r| self.row(r))
+    }
+
+    /// Build an iterator over matrix rows, returning a slice for each row.
+    // TODO: can we remove the lifetime bound?
+    pub fn iter_rows_iter<'a>(&'a self) -> impl Iterator<Item = impl Iterator<Item = &T>> + 'a {
+        self.cells.chunks(COLS).map(|r| r.iter())
+    }
+
+    /// Build an iterator over matrix columns.
+    /// This iterator returns a vector with the column items, because this allocates a vector this
+    /// is considered expensive.
+    // TODO: can we remove the lifetime bound?
+    pub fn iter_cols<'a>(&'a self) -> impl Iterator<Item = Vec<&T>> + 'a {
+        self.iter_cols_iter().map(|c| c.collect())
+    }
+
+    /// Build an iterator over matrix columns.
+    /// This iterator returns a new iterator for each column.
+    // TODO: can we remove the lifetime bound?
+    pub fn iter_cols_iter<'a>(&'a self) -> impl Iterator<Item = impl Iterator<Item = &T>> + 'a {
+        (0..COLS).map(move |c| self.iter_col(c))
+    }
+}
+
+impl Matx<u8> {
+    /// Construct a new matrix with just zeros.
+    pub fn zero() -> Self {
+        Self::new(vec![0u8; ROWS * COLS])
     }
 
     /// Load a matrix from a file at the given path.
     pub fn load(path: &str) -> IoResult<Self> {
-        Ok(Self::from_vec(
+        Ok(Self::new(
             read_to_string(path)
                 .expect("failed to load matrix from file")
                 .lines()
@@ -78,66 +112,32 @@ impl Matx {
         ))
     }
 
-    /// Get the value at the given coordinate.
-    #[inline]
-    pub fn get(&self, row: usize, col: usize) -> u8 {
-        self.m[(row, col)]
-    }
-
     /// Check whether the given coordinate has a value set that is not `0`.
     #[inline]
     pub fn has(&self, row: usize, col: usize) -> bool {
-        self.get(row, col) != 0
-    }
-
-    /// Set the `value` at the given coordinate.
-    #[inline]
-    pub fn set(&mut self, row: usize, col: usize, value: N) {
-        self.m[(row, col)] = value;
+        self[(row, col)] != 0
     }
 
     /// Remove the given `value` from a `row` by it's index.
     /// The cell that contains this value is set to `0`.
     /// This panics if the given value is not found in the row.
-    pub fn remove_from_row(&mut self, row: usize, value: N) {
-        self.set(
-            row,
-            self.m
-                .row(row)
-                .iter()
-                .position(|x| x == &value)
-                .expect("failed to remove item from row, does not exist"),
-            0,
-        )
+    pub fn remove_from_row(&mut self, row: usize, value: u8) {
+        let col = self
+            .iter_row(row)
+            .position(|x| x == &value)
+            .expect("failed to remove item from row, does not exist");
+        self[(row, col)] = 0;
     }
 
     /// Remove the given `value` from a `col` by it's index.
     /// The cell that contains this value is set to `0`.
     /// This panics if the given value is not found in the row.
-    pub fn remove_from_col(&mut self, col: usize, value: N) {
-        self.set(
-            self.m
-                .column(col)
-                .iter()
-                .position(|x| x == &value)
-                .expect("failed to remove item from column, does not exist"),
-            col,
-            0,
-        )
-    }
-
-    /// Build an iterator over matrix rows.
-    ///
-    /// Note: this is expensive.
-    pub fn iter_rows<'a>(&'a self) -> impl Iterator<Item = Vec<u8>> + 'a {
-        (0..ROWS).map(move |r| self.m.row(r).iter().map(|c| *c).collect::<Vec<u8>>())
-    }
-
-    /// Build an iterator over matrix columns.
-    ///
-    /// Note: this is expensive.
-    pub fn iter_cols<'a>(&'a self) -> impl Iterator<Item = Vec<u8>> + 'a {
-        (0..COLS).map(move |r| self.m.column(r).iter().map(|c| *c).collect::<Vec<u8>>())
+    pub fn remove_from_col(&mut self, col: usize, value: u8) {
+        let row = self
+            .iter_col(col)
+            .position(|x| x == &value)
+            .expect("failed to remove item from column, does not exist");
+        self[(row, col)] = 0;
     }
 
     /// Convert the matrix into a humanly readable string.
@@ -149,22 +149,50 @@ impl Matx {
     }
 }
 
-impl fmt::Display for Matx {
+impl<T> Index<usize> for Matx<T> {
+    type Output = T;
+
+    fn index(&self, i: usize) -> &T {
+        &self.cells[i]
+    }
+}
+
+impl<T> Index<(usize, usize)> for Matx<T> {
+    type Output = T;
+
+    fn index(&self, (r, c): (usize, usize)) -> &T {
+        &self.cells[rc_to_i(r, c)]
+    }
+}
+
+impl<T> IndexMut<usize> for Matx<T> {
+    fn index_mut(&mut self, i: usize) -> &mut T {
+        &mut self.cells[i]
+    }
+}
+
+impl<T> IndexMut<(usize, usize)> for Matx<T> {
+    fn index_mut(&mut self, (r, c): (usize, usize)) -> &mut T {
+        &mut self.cells[rc_to_i(r, c)]
+    }
+}
+
+impl fmt::Display for Matx<u8> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\n", self.to_string())
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Field {
-    left: Matx,
-    top: Matx,
-    field: Matx,
+    left: NumMatx,
+    top: NumMatx,
+    field: NumMatx,
 }
 
 impl Field {
     /// Build a new empty field with the given `left` and `top` matrix.
-    pub fn empty(left: Matx, top: Matx) -> Self {
+    pub fn empty(left: NumMatx, top: NumMatx) -> Self {
         Self {
             field: Matx::zero(),
             left,
@@ -181,8 +209,12 @@ impl Field {
     // TODO: do not clone in here
     fn _solve_naked_intersections(&mut self) {
         // Obtain the values left in the rows and columns
-        let rows: Vec<Vec<u8>> = self.left.iter_rows().collect();
-        let cols: Vec<Vec<u8>> = self.top.iter_cols().collect();
+        let rows: Vec<Vec<u8>> = self.left.iter_rows().map(|r| r.to_vec()).collect();
+        let cols: Vec<Vec<u8>> = self
+            .top
+            .iter_cols_iter()
+            .map(|c| c.map(|c| *c).collect())
+            .collect();
 
         // Find naked intersections for each row
         for r in 0..ROWS {
@@ -207,7 +239,7 @@ impl Field {
                         .enumerate()
                         .filter(|(_, col)| col.iter().any(|entry| *entry == item))
                         .for_each(|(c, _)| {
-                            self.field.set(r, c, item);
+                            self.field[(r, c)] = item;
                             self.left.remove_from_row(r, item);
                             self.top.remove_from_col(c, item);
                         })
@@ -237,7 +269,7 @@ impl Field {
                         .enumerate()
                         .filter(|(_, row)| row.iter().any(|entry| *entry == item))
                         .for_each(|(r, _)| {
-                            self.field.set(r, c, item);
+                            self.field[(r, c)] = item;
                             self.left.remove_from_row(r, item);
                             self.top.remove_from_col(c, item);
                         })
@@ -249,13 +281,13 @@ impl Field {
         // Obtain the values left in the rows and columns
         let rows: Vec<Vec<u8>> = self
             .left
-            .iter_rows()
-            .map(|r| r.iter().map(|x| *x).filter(|x| x != &0).collect())
+            .iter_rows_iter()
+            .map(|r| r.map(|x| *x).filter(|x| x != &0).collect())
             .collect();
         let cols: Vec<Vec<u8>> = self
             .left
-            .iter_cols()
-            .map(|c| c.iter().map(|x| *x).filter(|x| x != &0).collect())
+            .iter_cols_iter()
+            .map(|c| c.map(|x| *x).filter(|x| x != &0).collect())
             .collect();
 
         let mut map: Vec<Vec<u8>> = Vec::new();
@@ -327,4 +359,9 @@ fn count_map(items: &Vec<u8>) -> HashMap<u8, u8> {
             *map.entry(*item).or_insert(0) += 1;
             map
         })
+}
+
+/// Transform a row/column index into a unified index.
+fn rc_to_i(r: usize, c: usize) -> usize {
+    r * COLS + c
 }
