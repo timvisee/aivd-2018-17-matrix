@@ -185,8 +185,19 @@ impl fmt::Display for Matx<u8> {
 
 #[derive(Debug, Clone)]
 pub struct Field {
+    /// The current left matrix, holding all values left
     left: NumMatx,
+
+    /// The current top matrix, holding all values left
     top: NumMatx,
+
+    /// The original left matrix, still holding all values
+    orig_left: NumMatx,
+
+    /// The original top matrix, still holding all values
+    orig_top: NumMatx,
+
+    /// The current field state in which we solve
     field: NumMatx,
 }
 
@@ -195,6 +206,8 @@ impl Field {
     pub fn empty(left: NumMatx, top: NumMatx) -> Self {
         Self {
             field: Matx::zero(),
+            orig_left: left.clone(),
+            orig_top: top.clone(),
             left,
             top,
         }
@@ -361,7 +374,33 @@ fn count_map(items: &Vec<u8>) -> HashMap<u8, u8> {
         })
 }
 
-/// Transform a row/column index into a unified index.
+/// Transform an unified index into a `(row, column)` index.
+fn i_to_rc(i: usize) -> (usize, usize) {
+    (i / COLS, i % COLS)
+}
+
+/// Transform a `(row, column)` index into a unified index.
 fn rc_to_i(r: usize, c: usize) -> usize {
     r * COLS + c
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_i_to_rc() {
+        assert_eq!(i_to_rc(0), (0, 0));
+        assert_eq!(i_to_rc(1), (0, 1));
+        assert_eq!(i_to_rc(COLS), (1, 0));
+        assert_eq!(i_to_rc(COLS * 2 + 3), (2, 3));
+    }
+
+    #[test]
+    fn test_rc_to_i() {
+        assert_eq!(rc_to_i(0, 0), 0);
+        assert_eq!(rc_to_i(0, 1), 1);
+        assert_eq!(rc_to_i(1, 0), COLS);
+        assert_eq!(rc_to_i(2, 3), COLS * 2 + 3);
+    }
 }
