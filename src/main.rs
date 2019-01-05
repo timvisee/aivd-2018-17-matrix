@@ -174,17 +174,17 @@ impl Field {
 
     /// Attempt to solve the empty field based on the left and top matrices.
     pub fn solve(&mut self) {
-        self.unique_intersect();
+        self._solve_naked_intersections();
+        self._cell_posibilities();
     }
 
     // TODO: do not clone in here
-    // TODO: remove used items from left/top matrix
-    fn unique_intersect(&mut self) {
+    fn _solve_naked_intersections(&mut self) {
         // Obtain the values left in the rows and columns
         let rows: Vec<Vec<u8>> = self.left.iter_rows().collect();
         let cols: Vec<Vec<u8>> = self.top.iter_cols().collect();
 
-        // Attempt each row
+        // Find naked intersections for each row
         for r in 0..ROWS {
             // Count items in current row and all empty columns
             let row_count = count_map(&rows[r]);
@@ -214,7 +214,7 @@ impl Field {
                 });
         }
 
-        // Attempt each column
+        // Find naked intersections for each column
         for c in 0..COLS {
             // Count items in current column and all empty rows
             let row_count: HashMap<u8, u8> = count_map(
@@ -242,6 +242,33 @@ impl Field {
                             self.top.remove_from_col(c, item);
                         })
                 });
+        }
+    }
+
+    fn _cell_posibilities(&mut self) {
+        // Obtain the values left in the rows and columns
+        let rows: Vec<Vec<u8>> = self
+            .left
+            .iter_rows()
+            .map(|r| r.iter().map(|x| *x).filter(|x| x != &0).collect())
+            .collect();
+        let cols: Vec<Vec<u8>> = self
+            .left
+            .iter_cols()
+            .map(|c| c.iter().map(|x| *x).filter(|x| x != &0).collect())
+            .collect();
+
+        let mut map: Vec<Vec<u8>> = Vec::new();
+        for r in 0..ROWS {
+            let row = &rows[r];
+            for c in 0..COLS {
+                let possibilities = row
+                    .iter()
+                    .filter(|x| cols[c].contains(x))
+                    .map(|x| *x)
+                    .collect::<Vec<u8>>();
+                map.push(possibilities);
+            }
         }
     }
 }
