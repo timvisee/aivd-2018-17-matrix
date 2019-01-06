@@ -1,3 +1,5 @@
+#![feature(vec_remove_item)]
+
 extern crate itertools;
 extern crate permutator;
 
@@ -47,14 +49,29 @@ impl<T> Matx<T> {
         &self.cells[rc_to_i(row, 0)..rc_to_i(row + 1, 0)]
     }
 
+    /// Get a mutable slice of a row based on the given `row` index.
+    pub fn row_mut(&mut self, row: usize) -> &mut [T] {
+        &mut self.cells[rc_to_i(row, 0)..rc_to_i(row + 1, 0)]
+    }
+
     /// Iterate over a row based by the given `row` index.
     pub fn iter_row(&self, row: usize) -> impl Iterator<Item = &T> {
         self.row(row).iter()
     }
 
+    /// Iterate mutably over a row based by the given `row` index.
+    pub fn iter_row_mut(&mut self, row: usize) -> impl Iterator<Item = &mut T> {
+        self.row_mut(row).iter_mut()
+    }
+
     /// Iterate over a column based by the given `col` index.
     pub fn iter_col(&self, col: usize) -> impl Iterator<Item = &T> {
         self.cells[col..].iter().step_by(COLS)
+    }
+
+    /// Iterate mutably over a column based by the given `col` index.
+    pub fn iter_col_mut(&mut self, col: usize) -> impl Iterator<Item = &mut T> {
+        self.cells[col..].iter_mut().step_by(COLS)
     }
 
     /// Build an iterator over matrix rows, returning a slice for each row.
@@ -309,9 +326,7 @@ impl Field {
         let possibilities = Matx::new(
             (0..ROWS)
                 .cartesian_product(0..COLS)
-                .map(|(r, c)| Some(
-                    left_bands[r].intersections(&top_bands[c], false)
-                ))
+                .map(|(r, c)| Some(left_bands[r].intersections(&top_bands[c], false)))
                 .collect(),
         );
 
@@ -336,13 +351,15 @@ impl Field {
         self.field[(r, c)] = value;
         self.possibilities[(r, c)] = None;
 
-        // TODO: update `possibilities`
+        // TODO: update `possibilities`, row and column cells may not have possibility more than in
+        // band list
     }
 
     /// Attempt to solve the empty field based on the left and top matrices.
     pub fn solve(&mut self) {
         self.solve_naked_intersections();
         self.solve_naked_singles();
+        self.solve_naked_pairs();
     }
 
     // TODO: do not clone in here
@@ -429,6 +446,8 @@ impl Field {
     // }
 
     /// Solve cells that have one possible value.
+    ///
+    /// Info: http://www.sudokuwiki.org/Getting_Started
     fn solve_naked_singles(&mut self) {
         // Collect cells we can solve
         let solved: Vec<(usize, u8)> = self
@@ -442,10 +461,127 @@ impl Field {
             .collect();
 
         // Fill in the solved cells
-        solved.iter()
-            .for_each(|(i, x)| {
-                let (r, c) = i_to_rc(*i);
-                self.solved_cell(r, c, *x);
+        solved.iter().for_each(|(i, x)| {
+            let (r, c) = i_to_rc(*i);
+            self.solved_cell(r, c, *x);
+            println!("# solved naked single");
+        });
+    }
+
+    /// Solve naked/conjugate pairs. Two cells in a row or column that have the same two
+    /// possibilities, eliminating these options from other cells.
+    ///
+    /// Info: http://www.sudokuwiki.org/Naked_Candidates#NP
+    fn solve_naked_pairs(&mut self) {
+        // Build iterators through row and column cell possibilities
+        let rows = self
+            .possibilities
+            .iter_rows_iter()
+            .enumerate()
+            .map(|(r, row_iter)| row_iter
+                 .enumerate()
+                 .filter_map(|(c, cell)| cell.as_ref().map(|cell| (r, c, cell)))
+                 .collect::<Vec<_>>()
+            );
+        let cols = self
+            .possibilities
+            .iter_cols_iter()
+            .enumerate()
+            .map(|(c, col_iter)| col_iter
+                 .enumerate()
+                 .filter_map(|(r, cell)| cell.as_ref().map(|cell| (r, c, cell)))
+                 .collect::<Vec<_>>()
+            );
+
+        // Find possibility pairs on the rows and columns
+        let pairs: Vec<((usize, usize), (usize, usize), Vec<u8>)> = rows
+            .chain(cols)
+            .filter_map(|cells| {
+                // Find eligible cells, having two possible values, skip if not enough
+                let eligible: Vec<(usize, usize, Vec<u8>)> = cells
+                    .into_iter()
+                    .filter(|(_, _, possib)| possib.len() == 2)
+                    .map(|(r, c, possib)| (r, c, possib.clone()))
+                    .collect();
+                if eligible.len() < 2 {
+                    return None;
+                }
+
+                // Find cells with matching possibilities
+                let pairs: Vec<((usize, usize), (usize, usize), Vec<u8>)> = eligible
+                    .into_iter()
+                    .fold(HashMap::new(), |mut map, (r, c, possibilities)| {
+                        map.entry(possibilities).or_insert_with(|| Vec::new()).push((r, c));
+                        map
+                    })
+                    .into_iter()
+                    .filter(|(_, i)| i.len() >= 2)
+                    .inspect(|(_, i)| if i.len() > 2 {
+                        panic!("# naked pairs: more than two cells for possibilities, not yet implemented");
+                        // TODO: find all pairs in a row/column for the collected cell coordinates
+                        // with matching cell possibilities
+                    })
+                    .map(|(possib, coords)| (coords[0], coords[1], possib))
+                    .collect();
+
+                // Return the list with possibilities if there are any
+                if pairs.is_empty() {
+                    None
+                } else {
+                    Some(pairs)
+                }
+            })
+            .flatten()
+            .collect();
+
+        // For each possibility pair, update the surrounding cell possibility on the same line
+        pairs.into_iter()
+            .for_each(|(coords_a, coords_b, pair_possib)| {
+                println!("# found naked pair");
+
+                // Clone the left and top bands
+                let left_bands = self.left_bands.clone();
+                let top_bands = self.top_bands.clone();
+
+                // Find the row/column cells iterator, if on a row or column depending on how the
+                // pairs are aligned
+                let cells_iter: Box<dyn Iterator<Item = (usize, usize, &mut Option<_>)>> = if coords_a.0 == coords_b.0 {
+                    Box::new(self
+                        .possibilities
+                        .iter_row_mut(coords_a.0)
+                        .enumerate()
+                        .map(|(c, cell)| (coords_a.0, c, cell))
+                    )
+                } else {
+                    Box::new(self
+                        .possibilities
+                        .iter_col_mut(coords_a.1)
+                        .enumerate()
+                        .map(|(r, cell)| (r, coords_a.1, cell))
+                    )
+                };
+
+                // Update cell possibilities for other cells on the same line
+                cells_iter
+                    .filter_map(|(r, c, p)| p.as_mut().map(|p| (r, c, p)))
+                    .filter(|(r, c, _)| coords_a != (*r, *c) && coords_b != (*r, *c))
+                    .for_each(|(r, c, cell_possib)| {
+                        // Find all cell possibilities based on bands, remove pair items
+                        let mut band_possib = left_bands[r]
+                            .intersections(&top_bands[c], false);
+                        pair_possib.iter().for_each(|p| {
+                            band_possib.remove_item(p);
+                        });
+
+                        // Make sure the cell doesn't contain more possibilities than the
+                        // band list
+                        cell_possib.retain(|p| if band_possib.remove_item(p).is_some() {
+                            println!("# removed cell possibility due to naked pair");
+                            true
+                        } else {
+                            false
+                        });
+                    });
             });
     }
 }
