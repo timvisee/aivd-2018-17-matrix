@@ -21,14 +21,10 @@ fn main() {
     let matrix_a = Matx::load("matrix_a.txt").expect("failed to load matrix A from file");
     let matrix_b = Matx::load("matrix_b.txt").expect("failed to load matrix B from file");
 
-    println!("Matx A:\n{}", matrix_a);
-    println!("Matx B:\n{}", matrix_b);
-
     let mut field = Field::empty(matrix_a, matrix_b);
-    println!("Field:\n{}", field);
+    println!("Input:\n{}", field);
 
     println!("Started solving...");
-    field.solve();
     field.solve();
     println!("First solve attempt:\n{}", field);
 }
@@ -57,7 +53,7 @@ impl<T> Matx<T> {
 
     /// Iterate over a column based by the given `col` index.
     pub fn iter_col(&self, col: usize) -> impl Iterator<Item = &T> {
-        self.cells[col..].iter().step_by(ROWS).take(COLS)
+        self.cells[col..].iter().step_by(COLS)
     }
 
     /// Build an iterator over matrix rows, returning a slice for each row.
@@ -184,12 +180,86 @@ impl fmt::Display for Matx<u8> {
 }
 
 #[derive(Debug, Clone)]
+pub struct Band {
+    /// A key-value map with `item > count`.
+    pub map: HashMap<u8, u8>,
+}
+
+impl Band {
+    /// Build a band from the given iterator holding the items.
+    pub fn from<'a>(iter: impl Iterator<Item = &'a u8>) -> Self {
+        Self {
+            map: iter.fold(HashMap::new(), |mut map, item| {
+                    *map.entry(*item).or_insert(0) += 1;
+                    map
+                }),
+        }
+    }
+
+    /// Subtract a single item, decreasing it' s count in the map, or removing it if the count has
+    /// reached `0`.
+    pub fn subtract(&mut self, item: u8) {
+        // Obtain the item, subtract from it
+        let entry = self.map.get_mut(&item).unwrap();
+        *entry -= 1;
+
+        // If the item is zero, remove it from the map
+        if entry == &0 {
+            self.map.remove(&item);
+        }
+    }
+}
+
+/// A set of bands.
+#[derive(Debug, Clone)]
+pub struct BandSet {
+    pub bands: Vec<Band>,
+}
+
+impl BandSet {
+    /// Construct a new band set from the given list of bands.
+    pub fn new(bands: Vec<Band>) -> Self {
+        Self {
+            bands,
+        }
+    }
+
+    /// Construct a new set of bands from the given iterator, producing iterators for band items.
+    pub fn from<'a>(band_iter: impl Iterator<Item = impl Iterator<Item = &'a u8>>) -> Self {
+        Self::new(band_iter
+            .map(|band| Band::from(band))
+            .collect()
+        )
+    }
+}
+
+impl Index<usize> for BandSet {
+    type Output = Band;
+
+    fn index(&self, i: usize) -> &Band {
+        &self.bands[i]
+    }
+}
+
+impl IndexMut<usize> for BandSet {
+    fn index_mut(&mut self, i: usize) -> &mut Band {
+        &mut self.bands[i]
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Field {
     /// The current left matrix, holding all values left
     left: NumMatx,
 
+    /// A band set with rows for the left matrix, holding unused items for each row.
+    left_bands: BandSet,
+
     /// The current top matrix, holding all values left
     top: NumMatx,
+
+    /// A band set with columns for the top matrix, holding unused items for each column.
+    top_bands: BandSet,
 
     /// The original left matrix, still holding all values
     orig_left: NumMatx,
@@ -206,6 +276,8 @@ impl Field {
     pub fn empty(left: NumMatx, top: NumMatx) -> Self {
         Self {
             field: Matx::zero(),
+            left_bands: BandSet::from(left.iter_rows_iter()),
+            top_bands: BandSet::from(top.iter_cols_iter()),
             orig_left: left.clone(),
             orig_top: top.clone(),
             left,
@@ -213,14 +285,23 @@ impl Field {
         }
     }
 
+    /// A cell is solved, set it's value and update the possibility registries.
+    pub fn solved_cell(&mut self, r: usize, c: usize, value: u8) {
+        self.left_bands[r].subtract(value);
+        self.top_bands[c].subtract(value);
+        self.left.remove_from_row(r, value);
+        self.top.remove_from_col(c, value);
+        self.field[(r, c)] = value;
+    }
+
     /// Attempt to solve the empty field based on the left and top matrices.
     pub fn solve(&mut self) {
-        self._solve_naked_intersections();
-        self._cell_posibilities();
+        self.solve_naked_intersections();
+        self.solve_naked_singles();
     }
 
     // TODO: do not clone in here
-    fn _solve_naked_intersections(&mut self) {
+    fn solve_naked_intersections(&mut self) {
         // Obtain the values left in the rows and columns
         let rows: Vec<Vec<u8>> = self.left.iter_rows().map(|r| r.to_vec()).collect();
         let cols: Vec<Vec<u8>> = self
@@ -251,11 +332,7 @@ impl Field {
                     cols.iter()
                         .enumerate()
                         .filter(|(_, col)| col.iter().any(|entry| *entry == item))
-                        .for_each(|(c, _)| {
-                            self.field[(r, c)] = item;
-                            self.left.remove_from_row(r, item);
-                            self.top.remove_from_col(c, item);
-                        })
+                        .for_each(|(c, _)| self.solved_cell(r, c, item))
                 });
         }
 
@@ -281,16 +358,14 @@ impl Field {
                     rows.iter()
                         .enumerate()
                         .filter(|(_, row)| row.iter().any(|entry| *entry == item))
-                        .for_each(|(r, _)| {
-                            self.field[(r, c)] = item;
-                            self.left.remove_from_row(r, item);
-                            self.top.remove_from_col(c, item);
-                        })
+                        .for_each(|(r, _)| self.solved_cell(r, c, item))
                 });
         }
     }
 
-    fn _cell_posibilities(&mut self) {
+    /// Build a matrix of all cell possibilities.
+    /// `field` cells that already have a value are `None`.
+    fn _cell_posibilities(&self) -> Matx<Option<Vec<u8>>> {
         // Obtain the values left in the rows and columns
         let rows: Vec<Vec<u8>> = self
             .left
@@ -298,23 +373,43 @@ impl Field {
             .map(|r| r.map(|x| *x).filter(|x| x != &0).collect())
             .collect();
         let cols: Vec<Vec<u8>> = self
-            .left
+            .top
             .iter_cols_iter()
             .map(|c| c.map(|x| *x).filter(|x| x != &0).collect())
             .collect();
 
-        let mut map: Vec<Vec<u8>> = Vec::new();
-        for r in 0..ROWS {
-            let row = &rows[r];
-            for c in 0..COLS {
-                let possibilities = row
-                    .iter()
-                    .filter(|x| cols[c].contains(x))
-                    .map(|x| *x)
-                    .collect::<Vec<u8>>();
-                map.push(possibilities);
-            }
-        }
+        // For each matrix cell, find possibilities
+        Matx::new(
+            (0..ROWS).cartesian_product(0..COLS)
+                .map(|(r, c)| if self.field.has(r, c) {
+                        None
+                    } else {
+                        Some(rows[r]
+                            .iter()
+                            .unique()
+                            .filter(|x| cols[c].contains(x))
+                            .map(|x| *x)
+                            .collect::<Vec<u8>>(),
+                        )
+                    })
+                .collect()
+        )
+    }
+
+    /// Solve cells that have one possible value.
+    fn solve_naked_singles(&mut self) {
+        let possibilities = self._cell_posibilities();
+        possibilities
+            .cells
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, c)| c.map(|c| (i, c)))
+            .filter(|(_, c)| c.len() == 1)
+            .for_each(|(i, pos)| {
+                // Set the cell
+                let (r, c) = i_to_rc(i);
+                self.solved_cell(r, c, pos[0]);
+            });
     }
 }
 
@@ -364,6 +459,7 @@ fn to_char(x: u8) -> char {
 
 /// Make an item count map for the given list of `items`.
 /// The `0` item is not counted.
+// TODO: remove this, as it's replaced with the `Band` struct.
 fn count_map(items: &Vec<u8>) -> HashMap<u8, u8> {
     items
         .into_iter()
