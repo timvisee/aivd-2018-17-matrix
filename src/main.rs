@@ -182,7 +182,7 @@ impl fmt::Display for Matx<u8> {
 #[derive(Debug, Clone)]
 pub struct Band {
     /// A key-value map with `item > count`.
-    pub map: HashMap<u8, u8>,
+    map: HashMap<u8, u8>,
 }
 
 impl Band {
@@ -190,9 +190,9 @@ impl Band {
     pub fn from<'a>(iter: impl Iterator<Item = &'a u8>) -> Self {
         Self {
             map: iter.fold(HashMap::new(), |mut map, item| {
-                    *map.entry(*item).or_insert(0) += 1;
-                    map
-                }),
+                *map.entry(*item).or_insert(0) += 1;
+                map
+            }),
         }
     }
 
@@ -208,6 +208,15 @@ impl Band {
             self.map.remove(&item);
         }
     }
+
+    /// Get a list of all intersecting items between the current and the given `other` band.
+    pub fn intersections(&self, other: &Band) -> Vec<u8> {
+        self.map
+            .keys()
+            .filter(|k| other.map.contains_key(k))
+            .map(|c| *c)
+            .collect()
+    }
 }
 
 /// A set of bands.
@@ -219,17 +228,12 @@ pub struct BandSet {
 impl BandSet {
     /// Construct a new band set from the given list of bands.
     pub fn new(bands: Vec<Band>) -> Self {
-        Self {
-            bands,
-        }
+        Self { bands }
     }
 
     /// Construct a new set of bands from the given iterator, producing iterators for band items.
     pub fn from<'a>(band_iter: impl Iterator<Item = impl Iterator<Item = &'a u8>>) -> Self {
-        Self::new(band_iter
-            .map(|band| Band::from(band))
-            .collect()
-        )
+        Self::new(band_iter.map(|band| Band::from(band)).collect())
     }
 }
 
@@ -366,33 +370,18 @@ impl Field {
     /// Build a matrix of all cell possibilities.
     /// `field` cells that already have a value are `None`.
     fn _cell_posibilities(&self) -> Matx<Option<Vec<u8>>> {
-        // Obtain the values left in the rows and columns
-        let rows: Vec<Vec<u8>> = self
-            .left
-            .iter_rows_iter()
-            .map(|r| r.map(|x| *x).filter(|x| x != &0).collect())
-            .collect();
-        let cols: Vec<Vec<u8>> = self
-            .top
-            .iter_cols_iter()
-            .map(|c| c.map(|x| *x).filter(|x| x != &0).collect())
-            .collect();
-
         // For each matrix cell, find possibilities
         Matx::new(
-            (0..ROWS).cartesian_product(0..COLS)
-                .map(|(r, c)| if self.field.has(r, c) {
+            (0..ROWS)
+                .cartesian_product(0..COLS)
+                .map(|(r, c)| {
+                    if self.field.has(r, c) {
                         None
                     } else {
-                        Some(rows[r]
-                            .iter()
-                            .unique()
-                            .filter(|x| cols[c].contains(x))
-                            .map(|x| *x)
-                            .collect::<Vec<u8>>(),
-                        )
-                    })
-                .collect()
+                        Some(self.left_bands[r].intersections(&self.top_bands[c]))
+                    }
+                })
+                .collect(),
         )
     }
 
