@@ -273,39 +273,57 @@ impl IndexMut<usize> for BandSet {
 
 #[derive(Debug, Clone)]
 pub struct Field {
-    /// The current left matrix, holding all values left
-    left: NumMatx,
-
-    /// A band set with rows for the left matrix, holding unused items for each row.
-    left_bands: BandSet,
-
-    /// The current top matrix, holding all values left
-    top: NumMatx,
-
-    /// A band set with columns for the top matrix, holding unused items for each column.
-    top_bands: BandSet,
-
     /// The original left matrix, still holding all values
     orig_left: NumMatx,
 
     /// The original top matrix, still holding all values
     orig_top: NumMatx,
 
+    /// The current left matrix, holding all values left
+    left: NumMatx,
+
+    /// The current top matrix, holding all values left
+    top: NumMatx,
+
     /// The current field state in which we solve
     field: NumMatx,
+
+    /// A band set with rows for the left matrix, holding unused items for each row.
+    left_bands: BandSet,
+
+    /// A band set with columns for the top matrix, holding unused items for each column.
+    top_bands: BandSet,
+
+    /// A map holding all possible values for each cell.
+    possibilities: Matx<Option<Vec<u8>>>,
 }
 
 impl Field {
     /// Build a new empty field with the given `left` and `top` matrix.
     pub fn empty(left: NumMatx, top: NumMatx) -> Self {
+        // Calculate the left and top bands
+        let left_bands = BandSet::from(left.iter_rows_iter());
+        let top_bands = BandSet::from(top.iter_cols_iter());
+
+        // For each matrix cell, find possibilities
+        let possibilities = Matx::new(
+            (0..ROWS)
+                .cartesian_product(0..COLS)
+                .map(|(r, c)| Some(
+                    left_bands[r].intersections(&top_bands[c], false)
+                ))
+                .collect(),
+        );
+
         Self {
-            field: Matx::zero(),
-            left_bands: BandSet::from(left.iter_rows_iter()),
-            top_bands: BandSet::from(top.iter_cols_iter()),
             orig_left: left.clone(),
             orig_top: top.clone(),
             left,
             top,
+            field: Matx::zero(),
+            left_bands,
+            top_bands,
+            possibilities,
         }
     }
 
@@ -316,6 +334,9 @@ impl Field {
         self.left.remove_from_row(r, value);
         self.top.remove_from_col(c, value);
         self.field[(r, c)] = value;
+        self.possibilities[(r, c)] = None;
+
+        // TODO: update `possibilities`
     }
 
     /// Attempt to solve the empty field based on the left and top matrices.
@@ -387,38 +408,44 @@ impl Field {
         }
     }
 
-    /// Build a matrix of all cell possibilities.
-    /// `field` cells that already have a value are `None`.
-    /// If `unique` is `true`, all cells have each possible item once, this is less expensive.
-    fn _cell_posibilities(&self, unique: bool) -> Matx<Option<Vec<u8>>> {
-        // For each matrix cell, find possibilities
-        Matx::new(
-            (0..ROWS)
-                .cartesian_product(0..COLS)
-                .map(|(r, c)| {
-                    if self.field.has(r, c) {
-                        None
-                    } else {
-                        Some(self.left_bands[r].intersections(&self.top_bands[c], unique))
-                    }
-                })
-                .collect(),
-        )
-    }
+    // TODO: remove this?
+    // /// Build a matrix of all cell possibilities.
+    // /// `field` cells that already have a value are `None`.
+    // /// If `unique` is `true`, all cells have each possible item once, this is less expensive.
+    // fn _cell_posibilities(&self, unique: bool) -> Matx<Option<Vec<u8>>> {
+    //     // For each matrix cell, find possibilities
+    //     Matx::new(
+    //         (0..ROWS)
+    //             .cartesian_product(0..COLS)
+    //             .map(|(r, c)| {
+    //                 if self.field.has(r, c) {
+    //                     None
+    //                 } else {
+    //                     Some(self.left_bands[r].intersections(&self.top_bands[c], unique))
+    //                 }
+    //             })
+    //             .collect(),
+    //     )
+    // }
 
     /// Solve cells that have one possible value.
     fn solve_naked_singles(&mut self) {
-        let possibilities = self._cell_posibilities(false);
-        possibilities
+        // Collect cells we can solve
+        let solved: Vec<(usize, u8)> = self
+            .possibilities
             .cells
-            .into_iter()
+            .iter()
             .enumerate()
-            .filter_map(|(i, c)| c.map(|c| (i, c)))
-            .filter(|(_, c)| c.len() == 1)
-            .for_each(|(i, pos)| {
-                // Set the cell
-                let (r, c) = i_to_rc(i);
-                self.solved_cell(r, c, pos[0]);
+            .filter_map(|(i, c)| c.as_ref().map(|c| (i, c)))
+            .filter(|(_, c)| c.iter().unique().count() == 1)
+            .map(|(i, possibilities)| (i, possibilities[0]))
+            .collect();
+
+        // Fill in the solved cells
+        solved.iter()
+            .for_each(|(i, x)| {
+                let (r, c) = i_to_rc(*i);
+                self.solved_cell(r, c, *x);
             });
     }
 }
