@@ -27,9 +27,12 @@ fn main() {
     let mut field = Field::empty(matrix_a, matrix_b);
     println!("Input:\n{}", field);
 
-    println!("Started solving...");
-    field.solve();
-    println!("First solve attempt:\n{}", field);
+    println!("Start solving...");
+    if field.solve() {
+        println!("Solving stalled, could not progress further");
+    } else {
+        println!("Failed to solve any cell");
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -356,14 +359,32 @@ impl Field {
     }
 
     /// Attempt to solve the empty field based on the left and top matrices.
-    pub fn solve(&mut self) {
-        self.solve_naked_intersections();
-        self.solve_naked_singles();
-        self.solve_naked_pairs();
+    ///
+    /// If nothing could be solved `false` is returned.
+    pub fn solve(&mut self) -> bool {
+        // Keep solving steps until no step finds anything anymore
+        let mut step = 0;
+        while self.solve_step() {
+            println!("State after solving pass {}:\n{}", step, self);
+            step += 1;
+        }
+
+        step > 0
+    }
+
+    /// Attempt to solve the empty field based on the left and top matrices.
+    /// This method returns after one step has been solved.
+    /// Use `solve()` to attempt to solve the whole field.
+    ///
+    /// `true` is returned if any step solved anything, `false` if nothing was found.
+    pub fn solve_step(&mut self) -> bool {
+        self.solve_naked_intersections() ||
+        self.solve_naked_singles() ||
+        self.solve_naked_pairs()
     }
 
     // TODO: do not clone in here
-    fn solve_naked_intersections(&mut self) {
+    fn solve_naked_intersections(&mut self) -> bool {
         // Obtain the values left in the rows and columns
         let rows: Vec<Vec<u8>> = self.left.iter_rows().map(|r| r.to_vec()).collect();
         let cols: Vec<Vec<u8>> = self
@@ -371,6 +392,9 @@ impl Field {
             .iter_cols_iter()
             .map(|c| c.map(|c| *c).collect())
             .collect();
+
+        // Mark true if we solved anything
+        let mut solved = false;
 
         // Find naked intersections for each row
         for r in 0..ROWS {
@@ -394,7 +418,11 @@ impl Field {
                     cols.iter()
                         .enumerate()
                         .filter(|(_, col)| col.iter().any(|entry| *entry == item))
-                        .for_each(|(c, _)| self.solved_cell(r, c, item))
+                        .for_each(|(c, _)| {
+                            self.solved_cell(r, c, item);
+                            println!("# solved naked single");
+                            solved = true;
+                        })
                 });
         }
 
@@ -420,9 +448,15 @@ impl Field {
                     rows.iter()
                         .enumerate()
                         .filter(|(_, row)| row.iter().any(|entry| *entry == item))
-                        .for_each(|(r, _)| self.solved_cell(r, c, item))
+                        .for_each(|(r, _)| {
+                            self.solved_cell(r, c, item);
+                            println!("# solved naked single");
+                            solved = true;
+                        })
                 });
         }
+
+        solved
     }
 
     // TODO: remove this?
@@ -448,7 +482,7 @@ impl Field {
     /// Solve cells that have one possible value.
     ///
     /// Info: http://www.sudokuwiki.org/Getting_Started
-    fn solve_naked_singles(&mut self) {
+    fn solve_naked_singles(&mut self) -> bool {
         // Collect cells we can solve
         let solved: Vec<(usize, u8)> = self
             .possibilities
@@ -466,13 +500,15 @@ impl Field {
             self.solved_cell(r, c, *x);
             println!("# solved naked single");
         });
+
+        solved.len() > 0
     }
 
     /// Solve naked/conjugate pairs. Two cells in a row or column that have the same two
     /// possibilities, eliminating these options from other cells.
     ///
     /// Info: http://www.sudokuwiki.org/Naked_Candidates#NP
-    fn solve_naked_pairs(&mut self) {
+    fn solve_naked_pairs(&mut self) -> bool {
         // Build iterators through row and column cell possibilities
         let rows = self
             .possibilities
@@ -534,6 +570,9 @@ impl Field {
             .flatten()
             .collect();
 
+        // Keep track whether we solved anything
+        let mut solved = false;
+
         // For each possibility pair, update the surrounding cell possibility on the same line
         pairs.into_iter()
             .for_each(|(coords_a, coords_b, pair_possib)| {
@@ -576,13 +615,16 @@ impl Field {
                         // Make sure the cell doesn't contain more possibilities than the
                         // band list
                         cell_possib.retain(|p| if band_possib.remove_item(p).is_some() {
-                            println!("# removed cell possibility due to naked pair");
                             true
                         } else {
+                            println!("# removed cell possibility due to naked pair");
+                            solved = true;
                             false
                         });
                     });
             });
+
+        solved
     }
 }
 
