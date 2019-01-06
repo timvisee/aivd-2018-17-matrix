@@ -29,7 +29,7 @@ fn main() {
 
     println!("Start solving...");
     if field.solve() {
-        println!("Solving stalled, could not progress further");
+        println!("Solving stalled, could not progress any further");
     } else {
         println!("Failed to solve any cell");
     }
@@ -78,29 +78,25 @@ impl<T> Matx<T> {
     }
 
     /// Build an iterator over matrix rows, returning a slice for each row.
-    // TODO: can we remove the lifetime bound?
-    pub fn iter_rows<'a>(&'a self) -> impl Iterator<Item = &[T]> + 'a {
+    pub fn iter_rows(&self) -> impl Iterator<Item = &[T]> {
         (0..ROWS).map(move |r| self.row(r))
     }
 
     /// Build an iterator over matrix rows, returning a slice for each row.
-    // TODO: can we remove the lifetime bound?
-    pub fn iter_rows_iter<'a>(&'a self) -> impl Iterator<Item = impl Iterator<Item = &T>> + 'a {
+    pub fn iter_rows_iter(&self) -> impl Iterator<Item = impl Iterator<Item = &T>> {
         self.cells.chunks(COLS).map(|r| r.iter())
     }
 
     /// Build an iterator over matrix columns.
     /// This iterator returns a vector with the column items, because this allocates a vector this
     /// is considered expensive.
-    // TODO: can we remove the lifetime bound?
-    pub fn iter_cols<'a>(&'a self) -> impl Iterator<Item = Vec<&T>> + 'a {
+    pub fn iter_cols(&self) -> impl Iterator<Item = Vec<&T>> {
         self.iter_cols_iter().map(|c| c.collect())
     }
 
     /// Build an iterator over matrix columns.
     /// This iterator returns a new iterator for each column.
-    // TODO: can we remove the lifetime bound?
-    pub fn iter_cols_iter<'a>(&'a self) -> impl Iterator<Item = impl Iterator<Item = &T>> + 'a {
+    pub fn iter_cols_iter(&self) -> impl Iterator<Item = impl Iterator<Item = &T>> {
         (0..COLS).map(move |c| self.iter_col(c))
     }
 }
@@ -365,7 +361,7 @@ impl Field {
         // Keep solving steps until no step finds anything anymore
         let mut step = 0;
         while self.solve_step() {
-            println!("State after solving pass {}:\n{}", step, self);
+            println!("State after pass #{}:\n{}", step, self);
             step += 1;
         }
 
@@ -418,7 +414,7 @@ impl Field {
                         .filter(|(_, col)| col.iter().any(|entry| *entry == item))
                         .for_each(|(c, _)| {
                             self.solved_cell(r, c, item);
-                            println!("# solved naked single");
+                            println!("# solved naked intersection");
                             solved = true;
                         })
                 });
@@ -448,7 +444,7 @@ impl Field {
                         .filter(|(_, row)| row.iter().any(|entry| *entry == item))
                         .for_each(|(r, _)| {
                             self.solved_cell(r, c, item);
-                            println!("# solved naked single");
+                            println!("# solved naked intersection");
                             solved = true;
                         })
                 });
