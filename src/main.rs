@@ -1,6 +1,7 @@
 extern crate itertools;
 extern crate permutator;
 
+use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::read_to_string;
@@ -209,13 +210,32 @@ impl Band {
         }
     }
 
+    // /// Get all items in this band.
+    // /// If `unique` is `true`, the same items are only once in the list.
+    // pub fn items(&self, unique: bool) -> Vec<u8> {
+    //     if unique {
+    //         self.map.keys().map(|c| *c).collect()
+    //     } else {
+    //         self.map.iter().map(|(k, v)| vec![*k; *v as usize]).flatten().collect()
+    //     }
+    // }
+
     /// Get a list of all intersecting items between the current and the given `other` band.
-    pub fn intersections(&self, other: &Band) -> Vec<u8> {
-        self.map
-            .keys()
-            .filter(|k| other.map.contains_key(k))
-            .map(|c| *c)
-            .collect()
+    /// If `unique` is `true`, the same items are only once in the list, this is less expensive.
+    pub fn intersections(&self, other: &Band, unique: bool) -> Vec<u8> {
+        if unique {
+            self.map
+                .keys()
+                .filter(|k| other.map.contains_key(k))
+                .map(|c| *c)
+                .collect()
+        } else {
+            self.map
+                .iter()
+                .filter_map(|(k, v)| other.map.get(k).map(|c| vec![*k, min(*v, *c)]))
+                .flatten()
+                .collect()
+        }
     }
 }
 
@@ -369,7 +389,8 @@ impl Field {
 
     /// Build a matrix of all cell possibilities.
     /// `field` cells that already have a value are `None`.
-    fn _cell_posibilities(&self) -> Matx<Option<Vec<u8>>> {
+    /// If `unique` is `true`, all cells have each possible item once, this is less expensive.
+    fn _cell_posibilities(&self, unique: bool) -> Matx<Option<Vec<u8>>> {
         // For each matrix cell, find possibilities
         Matx::new(
             (0..ROWS)
@@ -378,7 +399,7 @@ impl Field {
                     if self.field.has(r, c) {
                         None
                     } else {
-                        Some(self.left_bands[r].intersections(&self.top_bands[c]))
+                        Some(self.left_bands[r].intersections(&self.top_bands[c], unique))
                     }
                 })
                 .collect(),
@@ -387,7 +408,7 @@ impl Field {
 
     /// Solve cells that have one possible value.
     fn solve_naked_singles(&mut self) {
-        let possibilities = self._cell_posibilities();
+        let possibilities = self._cell_posibilities(false);
         possibilities
             .cells
             .into_iter()
