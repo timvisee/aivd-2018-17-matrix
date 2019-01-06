@@ -1,4 +1,11 @@
 # AIVD 2018 challenge 17
+An attempt on building a solver for puzzle 17 from the Dutch AIVD Christmas
+puzzle challenge.
+
+The solver uses a set of strategies to attempt to progressively solve the input
+puzzle. The implemented strategies are heavily inspired by well known [sudoku
+solving strategies][strategy-families], along with some self conceived
+strategies.
 
 ## Example output
 ```
@@ -67,3 +74,5 @@ Solving stalled, could not progress any further
 ## License
 This project is released under the GNU GPL-3.0 license.
 Check out the [LICENSE](LICENSE) file for more information. 
+
+[strategy-families]: http://www.sudokuwiki.org/Strategy_Families
