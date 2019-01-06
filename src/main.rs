@@ -341,6 +341,11 @@ impl Field {
 
     /// A cell is solved, set it's value and update the possibility registries.
     pub fn solved_cell(&mut self, r: usize, c: usize, value: u8) {
+        // Make sure the cell isn't solved already
+        if self.field.has(r, c) {
+            panic!("Attempting to solve cell that has already been solved");
+        }
+
         self.left_bands[r].subtract(value);
         self.top_bands[c].subtract(value);
         self.left.remove_from_row(r, value);
@@ -383,6 +388,7 @@ impl Field {
     }
 
     // TODO: do not clone in here
+    // TODO: improve cell collection logic into `solved_list`
     fn solve_naked_intersections(&mut self) -> bool {
         // Obtain the values left in the rows and columns
         let rows: Vec<Vec<u8>> = self.left.iter_rows().map(|r| r.to_vec()).collect();
@@ -392,8 +398,8 @@ impl Field {
             .map(|c| c.map(|c| *c).collect())
             .collect();
 
-        // Mark true if we solved anything
-        let mut solved = false;
+        // List of solved fields, to apply in the end
+        let mut solved_list: Vec<(usize, usize, u8)> = Vec::new();
 
         // Find naked intersections for each row
         for r in 0..ROWS {
@@ -416,12 +422,9 @@ impl Field {
                 .for_each(|(item, _)| {
                     cols.iter()
                         .enumerate()
+                        .filter(|(c, _)| !self.field.has(r, *c))
                         .filter(|(_, col)| col.iter().any(|entry| *entry == item))
-                        .for_each(|(c, _)| {
-                            self.solved_cell(r, c, item);
-                            println!("# solved naked intersection");
-                            solved = true;
-                        })
+                        .for_each(|(c, _)| solved_list.push((r, c, item)))
                 });
         }
 
@@ -446,16 +449,21 @@ impl Field {
                 .for_each(|(item, _)| {
                     rows.iter()
                         .enumerate()
+                        .filter(|(r, _)| !self.field.has(*r, c))
                         .filter(|(_, row)| row.iter().any(|entry| *entry == item))
-                        .for_each(|(r, _)| {
-                            self.solved_cell(r, c, item);
-                            println!("# solved naked intersection");
-                            solved = true;
-                        })
+                        .for_each(|(r, _)| solved_list.push((r, c, item)))
                 });
         }
 
-        solved
+        // Apply the solved cells
+        solved_list.iter()
+            .for_each(|(r, c, item)| {
+                println!("# solved naked intersection");
+                self.solved_cell(*r, *c, *item);
+            });
+
+        // Return true if any cell was solved
+        solved_list.len() > 0
     }
 
     // TODO: remove this?
@@ -638,39 +646,40 @@ impl Field {
     ///
     /// Inspired by: http://www.sudokuwiki.org/Naked_Candidates#NT
     fn solve_naked_combis(&mut self) -> bool {
-        // // Build iterators through row and column cell possibilities
-        // let rows = self
-        //     .possibilities
-        //     .iter_rows_iter()
-        //     .enumerate()
-        //     .map(|(r, row_iter)| {
-        //         row_iter
-        //             .enumerate()
-        //             .filter_map(|(c, cell)| cell.as_ref().map(|cell| (r, c, cell)))
-        //             .collect::<Vec<_>>()
-        //     });
-        // let cols = self
-        //     .possibilities
-        //     .iter_cols_iter()
-        //     .enumerate()
-        //     .map(|(c, col_iter)| {
-        //         col_iter
-        //             .enumerate()
-        //             .filter_map(|(r, cell)| cell.as_ref().map(|cell| (r, c, cell)))
-        //             .collect::<Vec<_>>()
-        //     });
-
-        let combis: Vec<(Vec<(usize, usize, Vec<u8>)>, HashMap<u8, u8>)> = self
+        // Build iterators through row and column cell possibilities
+        let rows = self
             .possibilities
-            .iter_rows()
+            .iter_rows_iter()
             .enumerate()
-            .map(|(r, row)| (2..COLS - 1)
+            .map(|(r, row_iter)| (
+                row_iter
+                    .enumerate()
+                    .filter_map(|(c, cell)| cell.as_ref().map(|cell| (r, c, cell)))
+                    .collect::<Vec<_>>(),
+                COLS,
+            ));
+        let cols = self
+            .possibilities
+            .iter_cols_iter()
+            .enumerate()
+            .map(|(c, col_iter)| (
+                col_iter
+                    .enumerate()
+                    .filter_map(|(r, cell)| cell.as_ref().map(|cell| (r, c, cell)))
+                    .collect::<Vec<_>>(),
+                ROWS,
+            ));
+
+        // Find combination possibilities on rows and columns
+        let combis: Vec<(Vec<(usize, usize, Vec<u8>)>, HashMap<u8, u8>)> = rows
+            .chain(cols)
+            .map(|(cells, length)| (2..length - 1)
                 // TODO: skip cells that have been solved
                 // TODO: determine appropriate combination size, `max-1`?
-                .map(|size| row
+                // TODO: filter sizes larger than `max - 1` depending on row/column
+                .map(|size| cells
                     .iter()
-                    .enumerate()
-                    .filter_map(|(i, p)| p.as_ref().map(|p| (r, i, p.clone())))
+                    .map(|(r, c, p)| (*r, *c, p.iter().cloned().collect::<Vec<u8>>()))
                     // TODO: skip cells that have more possibilities than combination size here,
                     // possible with combinations?
                     .combinations(size)
@@ -681,7 +690,7 @@ impl Field {
                         }
 
                         // Count possibilities in each cell
-                        let possib_counts: HashMap<u8, u8> = combis
+                        let combi_possibs: HashMap<u8, u8> = combis
                             .iter()
                             .map(|(_, _, possib)| count_map(possib))
                             .fold(HashMap::new(), |mut map, possib| {
@@ -695,11 +704,11 @@ impl Field {
                             });
 
                         // Total must not be larger than combination size
-                        if possib_counts.values().sum::<u8>() > size as u8 {
+                        if combi_possibs.values().sum::<u8>() > size as u8 {
                             return None;
                         }
 
-                        Some((combis, possib_counts))
+                        Some((combis, combi_possibs))
                     })
                     .collect::<Vec<(Vec<(usize, usize, Vec<u8>)>, HashMap<u8, u8>)>>()
                 )
@@ -715,8 +724,9 @@ impl Field {
         // For each possibility combination, update the surrounding cell possibilities on the same line
         combis
             .into_iter()
-            .for_each(|(combis, possib_counts)| {
-                println!("# found naked combination (size: {})", combis.len());
+            .for_each(|(combis, combi_posibs)| {
+                // TODO: remove after debugging
+                // println!("# found naked combination (size: {})", combis.len());
 
                 // Clone the left and top bands
                 let left_bands = self.left_bands.clone();
@@ -748,7 +758,7 @@ impl Field {
                     .for_each(|(r, c, cell_possib)| {
                         // Find all cell possibilities based on bands, remove pair items
                         let mut band_possib = left_bands[r].intersections(&top_bands[c], false);
-                        possib_counts.iter().for_each(|(item, count)| for _ in 0..*count {
+                        combi_posibs.iter().for_each(|(item, count)| for _ in 0..*count {
                             band_possib.remove_item(item);
                         });
 
