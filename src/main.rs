@@ -24,7 +24,6 @@ fn main() {
     let matrix_b = Matx::load("matrix_b.txt").expect("failed to load matrix B from file");
 
     let mut field = Field::empty(matrix_a, matrix_b);
-    println!("Input:\n{}", field);
 
     println!("Start solving...");
     if field.solve() {
@@ -357,10 +356,14 @@ impl Field {
     ///
     /// If nothing could be solved `false` is returned.
     pub fn solve(&mut self) -> bool {
+        let count: usize = self.possibilities.cells.iter().filter_map(|c| c.as_ref().map(|c| c.len())).sum();
+        println!("Input (possibilities: {}):\n{}", count, self);
+
         // Keep solving steps until no step finds anything anymore
         let mut step = 0;
         while self.solve_step() {
-            println!("State after pass #{}:\n{}", step, self);
+            let count: usize = self.possibilities.cells.iter().filter_map(|c| c.as_ref().map(|c| c.len())).sum();
+            println!("State after pass #{} (possibilities: {}):\n{}", step, count, self);
             step += 1;
         }
 
@@ -571,7 +574,7 @@ impl Field {
         // Keep track whether we solved anything
         let mut solved = false;
 
-        // For each possibility pair, update the surrounding cell possibility on the same line
+        // For each possibility pair, update the surrounding cell possibilities on the same line
         pairs
             .into_iter()
             .for_each(|(coords_a, coords_b, pair_possib)| {
@@ -635,27 +638,52 @@ impl Field {
     ///
     /// Inspired by: http://www.sudokuwiki.org/Naked_Candidates#NT
     fn solve_naked_combis(&mut self) -> bool {
-        for (r, row) in self.possibilities.iter_rows().enumerate() {
-            // TODO: skip cells that have been solved
+        // // Build iterators through row and column cell possibilities
+        // let rows = self
+        //     .possibilities
+        //     .iter_rows_iter()
+        //     .enumerate()
+        //     .map(|(r, row_iter)| {
+        //         row_iter
+        //             .enumerate()
+        //             .filter_map(|(c, cell)| cell.as_ref().map(|cell| (r, c, cell)))
+        //             .collect::<Vec<_>>()
+        //     });
+        // let cols = self
+        //     .possibilities
+        //     .iter_cols_iter()
+        //     .enumerate()
+        //     .map(|(c, col_iter)| {
+        //         col_iter
+        //             .enumerate()
+        //             .filter_map(|(r, cell)| cell.as_ref().map(|cell| (r, c, cell)))
+        //             .collect::<Vec<_>>()
+        //     });
 
-            // TODO: determine appropriate combination size, `max-1`?
-            for size in 2..COLS - 1 {
-                row.iter()
+        let combis: Vec<(Vec<(usize, usize, Vec<u8>)>, HashMap<u8, u8>)> = self
+            .possibilities
+            .iter_rows()
+            .enumerate()
+            .map(|(r, row)| (2..COLS - 1)
+                // TODO: skip cells that have been solved
+                // TODO: determine appropriate combination size, `max-1`?
+                .map(|size| row
+                    .iter()
                     .enumerate()
-                    .filter_map(|(i, p)| p.as_ref().map(|p| (i, p)))
+                    .filter_map(|(i, p)| p.as_ref().map(|p| (r, i, p.clone())))
                     // TODO: skip cells that have more possibilities than combination size here,
                     // possible with combinations?
                     .combinations(size)
-                    .for_each(|combis| {
+                    .filter_map(|combis| {
                         // Skip if any cell has more possibilities than the combination size
-                        if combis.iter().any(|(_, possib)| possib.len() > size) {
-                            return;
+                        if combis.iter().any(|(_, _, possib)| possib.len() > size) {
+                            return None;
                         }
 
                         // Count possibilities in each cell
                         let possib_counts: HashMap<u8, u8> = combis
                             .iter()
-                            .map(|(_, possib)| count_map(possib))
+                            .map(|(_, _, possib)| count_map(possib))
                             .fold(HashMap::new(), |mut map, possib| {
                                 possib.into_iter()
                                     .for_each(|(item, count)| {
@@ -668,28 +696,77 @@ impl Field {
 
                         // Total must not be larger than combination size
                         if possib_counts.values().sum::<u8>() > size as u8 {
-                            return;
+                            return None;
                         }
 
-                        // TODO: remove after debugging
-                        // println!("ROW: {}", r);
-                        // println!("Final possib (size {}): {:?}", size, possib_counts);
-                        // for (i, _) in combis.iter() {
-                        //     println!("Combination item (_, {})", i);
-                        // }
-                        // for (i, row) in row.iter().enumerate() {
-                        //     if let Some(row) = row {
-                        //         println!("Row possibs (_, {}): {:?}", i, row);
-                        //     }
-                        // }
+                        Some((combis, possib_counts))
+                    })
+                    .collect::<Vec<(Vec<(usize, usize, Vec<u8>)>, HashMap<u8, u8>)>>()
+                )
+                .flatten()
+                .collect::<Vec<(Vec<(usize, usize, Vec<u8>)>, HashMap<u8, u8>)>>()
+            )
+            .flatten()
+            .collect();
 
-                        panic!("found naked combination of size {}, neighbouring cell elimination logic not yet implemented", size);
+        // Keep track whether we solved anything
+        let mut solved = false;
+
+        // For each possibility combination, update the surrounding cell possibilities on the same line
+        combis
+            .into_iter()
+            .for_each(|(combis, possib_counts)| {
+                println!("# found naked combination (size: {})", combis.len());
+
+                // Clone the left and top bands
+                let left_bands = self.left_bands.clone();
+                let top_bands = self.top_bands.clone();
+
+                // Find the row/column cells iterator, if on a row or column depending on how the
+                // pairs are aligned
+                let cells_iter: Box<dyn Iterator<Item = (usize, usize, &mut Option<_>)>> =
+                    if combis[0].0 == combis[1].0 {
+                        Box::new(
+                            self.possibilities
+                                .iter_row_mut(combis[0].0)
+                                .enumerate()
+                                .map(|(c, cell)| (combis[0].0, c, cell)),
+                        )
+                    } else {
+                        Box::new(
+                            self.possibilities
+                                .iter_col_mut(combis[0].1)
+                                .enumerate()
+                                .map(|(r, cell)| (r, combis[0].1, cell)),
+                        )
+                    };
+
+                // Update cell possibilities for other cells on the same line
+                cells_iter
+                    .filter_map(|(r, c, p)| p.as_mut().map(|p| (r, c, p)))
+                    .filter(|(r, c, _)| !combis.iter().any(|(rr, cc, _)| r == rr && c == cc))
+                    .for_each(|(r, c, cell_possib)| {
+                        // Find all cell possibilities based on bands, remove pair items
+                        let mut band_possib = left_bands[r].intersections(&top_bands[c], false);
+                        possib_counts.iter().for_each(|(item, count)| for _ in 0..*count {
+                            band_possib.remove_item(item);
+                        });
+
+                        // Make sure the cell doesn't contain more possibilities than the
+                        // band list
+                        cell_possib.retain(|p| {
+                            if band_possib.remove_item(p).is_some() {
+                                true
+                            } else {
+                                println!("# removed cell possibility due to naked combination");
+                                solved = true;
+                                false
+                            }
+                        });
                     });
-            }
-        }
+            });
 
-        // TODO: return proper value here
-        false
+        solved
     }
 }
 
