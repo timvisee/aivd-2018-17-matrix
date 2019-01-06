@@ -1,9 +1,8 @@
 #![feature(vec_remove_item)]
 
 extern crate itertools;
-extern crate permutator;
 
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::read_to_string;
@@ -248,7 +247,7 @@ impl Band {
         } else {
             self.map
                 .iter()
-                .filter_map(|(k, v)| other.map.get(k).map(|c| vec![*k, min(*v, *c)]))
+                .filter_map(|(k, v)| other.map.get(k).map(|c| vec![*k; min(*v, *c) as usize]))
                 .flatten()
                 .collect()
         }
@@ -374,7 +373,10 @@ impl Field {
     ///
     /// `true` is returned if any step solved anything, `false` if nothing was found.
     pub fn solve_step(&mut self) -> bool {
-        self.solve_naked_intersections() || self.solve_naked_singles() || self.solve_naked_pairs()
+        self.solve_naked_intersections()
+            || self.solve_naked_singles()
+            || self.solve_naked_pairs()
+            || self.solve_naked_combis()
     }
 
     // TODO: do not clone in here
@@ -475,7 +477,7 @@ impl Field {
 
     /// Solve cells that have one possible value.
     ///
-    /// Info: http://www.sudokuwiki.org/Getting_Started
+    /// Inspired by: http://www.sudokuwiki.org/Getting_Started
     fn solve_naked_singles(&mut self) -> bool {
         // Collect cells we can solve
         let solved: Vec<(usize, u8)> = self
@@ -501,7 +503,7 @@ impl Field {
     /// Solve naked/conjugate pairs. Two cells in a row or column that have the same two
     /// possibilities, eliminating these options from other cells.
     ///
-    /// Info: http://www.sudokuwiki.org/Naked_Candidates#NP
+    /// Inspired by: http://www.sudokuwiki.org/Naked_Candidates#NP
     fn solve_naked_pairs(&mut self) -> bool {
         // Build iterators through row and column cell possibilities
         let rows = self
@@ -625,6 +627,70 @@ impl Field {
 
         solved
     }
+
+    /// Solve naked/conjugate combinations (being pairs, triples, quads or a larger combination).
+    /// A combination of cells on the same row or column that together only have the same number of
+    /// possibilities as the number of cells in the combination, have these possibilities in either
+    /// cell for sure, which allows eliminating these options from other cells in the same line.
+    ///
+    /// Inspired by: http://www.sudokuwiki.org/Naked_Candidates#NT
+    fn solve_naked_combis(&mut self) -> bool {
+        for (r, row) in self.possibilities.iter_rows().enumerate() {
+            // TODO: skip cells that have been solved
+
+            // TODO: determine appropriate combination size, `max-1`?
+            for size in 2..COLS - 1 {
+                row.iter()
+                    .enumerate()
+                    .filter_map(|(i, p)| p.as_ref().map(|p| (i, p)))
+                    // TODO: skip cells that have more possibilities than combination size here,
+                    // possible with combinations?
+                    .combinations(size)
+                    .for_each(|combis| {
+                        // Skip if any cell has more possibilities than the combination size
+                        if combis.iter().any(|(_, possib)| possib.len() > size) {
+                            return;
+                        }
+
+                        // Count possibilities in each cell
+                        let possib_counts: HashMap<u8, u8> = combis
+                            .iter()
+                            .map(|(_, possib)| count_map(possib))
+                            .fold(HashMap::new(), |mut map, possib| {
+                                possib.into_iter()
+                                    .for_each(|(item, count)| {
+                                        map.entry(item)
+                                            .and_modify(|cur| *cur = max(*cur, count))
+                                            .or_insert(count);
+                                    });
+                                map
+                            });
+
+                        // Total must not be larger than combination size
+                        if possib_counts.values().sum::<u8>() > size as u8 {
+                            return;
+                        }
+
+                        // TODO: remove after debugging
+                        // println!("ROW: {}", r);
+                        // println!("Final possib (size {}): {:?}", size, possib_counts);
+                        // for (i, _) in combis.iter() {
+                        //     println!("Combination item (_, {})", i);
+                        // }
+                        // for (i, row) in row.iter().enumerate() {
+                        //     if let Some(row) = row {
+                        //         println!("Row possibs (_, {}): {:?}", i, row);
+                        //     }
+                        // }
+
+                        panic!("found naked combination of size {}, neighbouring cell elimination logic not yet implemented", size);
+                    });
+            }
+        }
+
+        // TODO: return proper value here
+        false
+    }
 }
 
 impl fmt::Display for Field {
@@ -673,7 +739,6 @@ fn to_char(x: u8) -> char {
 
 /// Make an item count map for the given list of `items`.
 /// The `0` item is not counted.
-// TODO: remove this, as it's replaced with the `Band` struct.
 fn count_map(items: &Vec<u8>) -> HashMap<u8, u8> {
     items
         .into_iter()
