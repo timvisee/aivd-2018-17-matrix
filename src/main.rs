@@ -225,47 +225,28 @@ impl Band {
     }
 
     /// Do an `and` operation on this band and the given `other`, returning a list of result items.
-    /// If `unique` is `true`, the same items are only once in the list, this is less expensive.
-    pub fn and(&self, other: &Band, unique: bool) -> Vec<u8> {
-        if unique {
-            self.map
-                .keys()
-                .filter(|k| other.map.contains_key(k))
-                .map(|c| *c)
-                .collect()
-        } else {
-            self.map
-                .iter()
-                .filter_map(|(k, v)| other.map.get(k).map(|c| vec![*k; min(*v, *c) as usize]))
-                .flatten()
-                .collect()
-        }
+    pub fn and(&self, other: &Band) -> Vec<u8> {
+        self.map
+            .iter()
+            .filter_map(|(k, v)| other.map.get(k).map(|c| vec![*k; min(*v, *c) as usize]))
+            .flatten()
+            .collect()
     }
 
     /// Do an `or` operation on this band and the given `other`, returning a list of result items.
-    /// If `unique` is `true`, the same items are only once in the list, this is less expensive.
-    pub fn or(&self, other: &Band, unique: bool) -> Vec<u8> {
-        if unique {
-            self.map
-                .keys()
-                .chain(other.map.keys())
-                .unique()
-                .map(|c| *c)
-                .collect()
-        } else {
-            // Clone the current count map, merge the map from other
-            let mut map = self.map.clone();
-            other.map.iter().for_each(|(item, count)| {
-                map.entry(*item)
-                    .and_modify(|x| *x = max(*x, *count))
-                    .or_insert(*count);
-            });
+    pub fn or(&self, other: &Band) -> Vec<u8> {
+        // Clone the current count map, merge the map from other
+        let mut map = self.map.clone();
+        other.map.iter().for_each(|(item, count)| {
+            map.entry(*item)
+                .and_modify(|x| *x = max(*x, *count))
+                .or_insert(*count);
+        });
 
-            // Transform count map into items vector
-            map.into_iter()
-                .flat_map(|(item, count)| vec![item; count as usize])
-                .collect()
-        }
+        // Transform count map into items vector
+        map.into_iter()
+            .flat_map(|(item, count)| vec![item; count as usize])
+            .collect()
     }
 }
 
@@ -339,7 +320,7 @@ impl Field {
         let possibilities = Matx::new(
             (0..ROWS)
                 .cartesian_product(0..COLS)
-                .map(|(r, c)| left_bands[r].and(&top_bands[c], false))
+                .map(|(r, c)| left_bands[r].and(&top_bands[c]))
                 .collect(),
         );
 
@@ -400,7 +381,7 @@ impl Field {
         // For each given cell, eliminate exceeding candidates
         for (r, c) in cells {
             // Find all cell possibilities based on bands, remove used items
-            let mut new_possibs = self.left_bands[r].or(&self.top_bands[c], false);
+            let mut new_possibs = self.left_bands[r].or(&self.top_bands[c]);
             used.iter().for_each(|item| {
                 new_possibs.remove_item(item);
             });
@@ -557,9 +538,9 @@ impl Field {
             .cells
             .iter()
             .enumerate()
-            .filter_map(|(i, c)| c.as_ref().map(|c| (i, c)))
+            .filter(|(_, c)| !c.is_empty())
             .filter(|(_, c)| c.iter().unique().count() == 1)
-            .map(|(i, possibilities)| (i, possibilities[0]))
+            .map(|(i, possibs)| (i, possibs[0]))
             .collect();
 
         // Fill in the solved cells
