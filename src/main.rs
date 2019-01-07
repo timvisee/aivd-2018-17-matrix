@@ -234,9 +234,9 @@ impl Band {
     //     }
     // }
 
-    /// Get a list of all intersecting items between the current and the given `other` band.
+    /// Do an `and` operation on this band and the given `other`, returning a list of result items.
     /// If `unique` is `true`, the same items are only once in the list, this is less expensive.
-    pub fn intersections(&self, other: &Band, unique: bool) -> Vec<u8> {
+    pub fn and(&self, other: &Band, unique: bool) -> Vec<u8> {
         if unique {
             self.map
                 .keys()
@@ -248,6 +248,32 @@ impl Band {
                 .iter()
                 .filter_map(|(k, v)| other.map.get(k).map(|c| vec![*k; min(*v, *c) as usize]))
                 .flatten()
+                .collect()
+        }
+    }
+
+    /// Do an `or` operation on this band and the given `other`, returning a list of result items.
+    /// If `unique` is `true`, the same items are only once in the list, this is less expensive.
+    pub fn or(&self, other: &Band, unique: bool) -> Vec<u8> {
+        if unique {
+            self.map
+                .keys()
+                .chain(other.map.keys())
+                .unique()
+                .map(|c| *c)
+                .collect()
+        } else {
+            // Clone the current count map, merge the map from other
+            let mut map = self.map.clone();
+            other.map
+                .iter()
+                .for_each(|(item, count)| {
+                    map.entry(*item).and_modify(|x| *x = max(*x, *count)).or_insert(*count);
+                });
+
+            // Transform count map into items vector
+            map.into_iter()
+                .flat_map(|(item, count)| vec![item; count as usize])
                 .collect()
         }
     }
@@ -323,7 +349,7 @@ impl Field {
         let possibilities = Matx::new(
             (0..ROWS)
                 .cartesian_product(0..COLS)
-                .map(|(r, c)| Some(left_bands[r].intersections(&top_bands[c], false)))
+                .map(|(r, c)| Some(left_bands[r].and(&top_bands[c], false)))
                 .collect(),
         );
 
@@ -362,13 +388,13 @@ impl Field {
     /// If nothing could be solved `false` is returned.
     pub fn solve(&mut self) -> bool {
         let count: usize = self.possibilities.cells.iter().filter_map(|c| c.as_ref().map(|c| c.len())).sum();
-        println!("Input (possibilities: {}):\n{}", count, self);
+        println!("Input (remaining cell candidates: {}):\n{}", count, self);
 
         // Keep solving steps until no step finds anything anymore
         let mut step = 0;
         while self.solve_step() {
             let count: usize = self.possibilities.cells.iter().filter_map(|c| c.as_ref().map(|c| c.len())).sum();
-            println!("State after pass #{} (possibilities: {}):\n{}", step, count, self);
+            println!("State after pass #{} (remaining cell candidates: {}):\n{}", step, count, self);
             step += 1;
         }
 
@@ -381,8 +407,8 @@ impl Field {
     ///
     /// `true` is returned if any step solved anything, `false` if nothing was found.
     pub fn solve_step(&mut self) -> bool {
-        self.solve_naked_intersections()
-            || self.solve_naked_singles()
+        self.solve_naked_singles()
+            || self.solve_naked_intersections()
             || self.solve_naked_pairs()
             || self.solve_naked_combis()
     }
@@ -479,7 +505,7 @@ impl Field {
     //                 if self.field.has(r, c) {
     //                     None
     //                 } else {
-    //                     Some(self.left_bands[r].intersections(&self.top_bands[c], unique))
+    //                     Some(self.left_bands[r].and(&self.top_bands[c], unique))
     //                 }
     //             })
     //             .collect(),
@@ -617,7 +643,7 @@ impl Field {
                     .filter(|(r, c, _)| coords_a != (*r, *c) && coords_b != (*r, *c))
                     .for_each(|(r, c, cell_possib)| {
                         // Find all cell possibilities based on bands, remove pair items
-                        let mut band_possib = left_bands[r].intersections(&top_bands[c], false);
+                        let mut band_possib = left_bands[r].and(&top_bands[c], false);
                         pair_possib.iter().for_each(|p| {
                             band_possib.remove_item(p);
                         });
@@ -756,8 +782,9 @@ impl Field {
                     .filter_map(|(r, c, p)| p.as_mut().map(|p| (r, c, p)))
                     .filter(|(r, c, _)| !combis.iter().any(|(rr, cc, _)| r == rr && c == cc))
                     .for_each(|(r, c, cell_possib)| {
-                        // Find all cell possibilities based on bands, remove pair items
-                        let mut band_possib = left_bands[r].intersections(&top_bands[c], false);
+                        // Find all cell possibilities based on bands, remove combination items
+                        // TODO: should we OR here, or use a single band?
+                        let mut band_possib = left_bands[r].or(&top_bands[c], false);
                         combi_posibs.iter().for_each(|(item, count)| for _ in 0..*count {
                             band_possib.remove_item(item);
                         });
