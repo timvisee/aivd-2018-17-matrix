@@ -224,16 +224,6 @@ impl Band {
         }
     }
 
-    // /// Get all items in this band.
-    // /// If `unique` is `true`, the same items are only once in the list.
-    // pub fn items(&self, unique: bool) -> Vec<u8> {
-    //     if unique {
-    //         self.map.keys().map(|c| *c).collect()
-    //     } else {
-    //         self.map.iter().map(|(k, v)| vec![*k; *v as usize]).flatten().collect()
-    //     }
-    // }
-
     /// Do an `and` operation on this band and the given `other`, returning a list of result items.
     /// If `unique` is `true`, the same items are only once in the list, this is less expensive.
     pub fn and(&self, other: &Band, unique: bool) -> Vec<u8> {
@@ -335,6 +325,7 @@ pub struct Field {
     top_bands: BandSet,
 
     /// A map holding all possible values for each cell.
+    // TODO: switch to just use vectors, remove option
     possibilities: Matx<Option<Vec<u8>>>,
 }
 
@@ -365,22 +356,82 @@ impl Field {
         }
     }
 
-    /// A cell is solved, set it's value and update the possibility registries.
+    /// A cell is solved, set it's value, update intersecting bands and elimimnate candidates from
+    /// cells in the same row or column.
     pub fn solved_cell(&mut self, r: usize, c: usize, value: u8) {
         // Make sure the cell isn't solved already
         if self.field.has(r, c) {
             panic!("Attempting to solve cell that has already been solved");
         }
 
+        // Remove item from possibilities and bands
         self.left_bands[r].subtract(value);
         self.top_bands[c].subtract(value);
         self.left.remove_from_row(r, value);
         self.top.remove_from_col(c, value);
-        self.field[(r, c)] = value;
         self.possibilities[(r, c)] = None;
 
-        // TODO: update `possibilities`, row and column cells may not have possibility more than in
-        // band list
+        // Set the cell
+        self.field[(r, c)] = value;
+
+        // List the cell coordinates in the current row and column, except this cell
+        let row_cells = (0..ROWS).map(|r| (r, c));
+        let col_cells = (0..COLS).map(|c| (r, c));
+        let line_cells = row_cells
+            .chain(col_cells)
+            .filter(|coord| (r, c) != *coord)
+            .collect();
+
+        // Eliminate used items from all other cells in the row or column
+        self.eliminate_candidates(line_cells, &vec![value]);
+    }
+
+    /// Eliminate the `used` items from available candidates in all `cells`.
+    ///
+    /// For each unsolved cell in `cells`, the candidates are redetermined based on their current
+    /// row and column band state. The `used` items are subtracted from this set. Any cell
+    /// candidates that exceed this list are removed from the cell.
+    fn eliminate_candidates(
+        &mut self,
+        mut cells: Vec<(usize, usize)>,
+        used: &Vec<u8>,
+    ) -> bool {
+        // Keep track whehter any cell candidates have changed
+        let mut changed = false;
+
+        // Drop cells that have no possibilities
+        cells.retain(|coord| self.possibilities[*coord].is_some());
+
+        // For each given cell, eliminate exceeding candidates
+        for (r, c) in cells {
+            // Find all cell possibilities based on bands, remove used items
+            let mut new_possibs = self.left_bands[r].or(&self.top_bands[c], false);
+            used.iter().for_each(|item| {
+                new_possibs.remove_item(item);
+            });
+
+            // Retain excess items not in new_possibs from current cell
+            let cell_possibs = self.possibilities[(r, c)].as_mut().unwrap();
+            cell_possibs.retain(|item| {
+                if new_possibs.remove_item(item).is_some() {
+                    true
+                } else {
+                    changed = true;
+
+                    // TODO: remove after debugging
+                    println!("ELIMINATED {} FROM ({}, {})", to_char(*item), r, c);
+
+                    false
+                }
+            });
+
+            // Panic if no candidates are left
+            if cell_possibs.is_empty() {
+                panic!("Left 0 possibilities in cell ({}, {}) after eliminating candidates", r, c);
+            }
+        }
+
+        changed
     }
 
     /// Attempt to solve the empty field based on the left and top matrices.
@@ -496,26 +547,6 @@ impl Field {
         solved_list.len() > 0
     }
 
-    // TODO: remove this?
-    // /// Build a matrix of all cell possibilities.
-    // /// `field` cells that already have a value are `None`.
-    // /// If `unique` is `true`, all cells have each possible item once, this is less expensive.
-    // fn _cell_posibilities(&self, unique: bool) -> Matx<Option<Vec<u8>>> {
-    //     // For each matrix cell, find possibilities
-    //     Matx::new(
-    //         (0..ROWS)
-    //             .cartesian_product(0..COLS)
-    //             .map(|(r, c)| {
-    //                 if self.field.has(r, c) {
-    //                     None
-    //                 } else {
-    //                     Some(self.left_bands[r].and(&self.top_bands[c], unique))
-    //                 }
-    //             })
-    //             .collect(),
-    //     )
-    // }
-
     /// Solve cells that have one possible value.
     ///
     /// Inspired by: http://www.sudokuwiki.org/Getting_Started
@@ -618,52 +649,18 @@ impl Field {
             .for_each(|(coords_a, coords_b, pair_possib)| {
                 println!("# found naked pair");
 
-                // Clone the left and top bands
-                let left_bands = self.left_bands.clone();
-                let top_bands = self.top_bands.clone();
+                // Build list of coordinates for all other cells in the same line
+                let line_cells: Box<dyn Iterator<Item = (usize, usize)>> = if coords_a.0 == coords_b.0 {
+                    Box::new((0..COLS).map(|c| (coords_a.0, c)))
+                } else {
+                    Box::new((0..ROWS).map(|r| (r, coords_a.1)))
+                };
+                let line_cells = line_cells.filter(|coord| coord != &coords_a && coord != &coords_b).collect();
 
-                // Find the row/column cells iterator, if on a row or column depending on how the
-                // pairs are aligned
-                let cells_iter: Box<dyn Iterator<Item = (usize, usize, &mut Option<_>)>> =
-                    if coords_a.0 == coords_b.0 {
-                        Box::new(
-                            self.possibilities
-                                .iter_row_mut(coords_a.0)
-                                .enumerate()
-                                .map(|(c, cell)| (coords_a.0, c, cell)),
-                        )
-                    } else {
-                        Box::new(
-                            self.possibilities
-                                .iter_col_mut(coords_a.1)
-                                .enumerate()
-                                .map(|(r, cell)| (r, coords_a.1, cell)),
-                        )
-                    };
-
-                // Update cell possibilities for other cells on the same line
-                cells_iter
-                    .filter_map(|(r, c, p)| p.as_mut().map(|p| (r, c, p)))
-                    .filter(|(r, c, _)| coords_a != (*r, *c) && coords_b != (*r, *c))
-                    .for_each(|(r, c, cell_possib)| {
-                        // Find all cell possibilities based on bands, remove pair items
-                        let mut band_possib = left_bands[r].and(&top_bands[c], false);
-                        pair_possib.iter().for_each(|p| {
-                            band_possib.remove_item(p);
-                        });
-
-                        // Make sure the cell doesn't contain more possibilities than the
-                        // band list
-                        cell_possib.retain(|p| {
-                            if band_possib.remove_item(p).is_some() {
-                                true
-                            } else {
-                                println!("# removed cell possibility due to naked pair");
-                                solved = true;
-                                false
-                            }
-                        });
-                    });
+                // Retain used items in combination from other cells in same line
+                if self.eliminate_candidates(line_cells, &pair_possib) {
+                    solved = true;
+                }
             });
 
         solved
@@ -676,53 +673,40 @@ impl Field {
     ///
     /// Inspired by: http://www.sudokuwiki.org/Naked_Candidates#NT
     fn solve_naked_combis(&mut self) -> bool {
-        // Build iterators through row and column cell possibilities
-        let rows = self
-            .possibilities
-            .iter_rows_iter()
-            .enumerate()
-            .map(|(r, row_iter)| (
-                row_iter
-                    .enumerate()
-                    .filter_map(|(c, cell)| cell.as_ref().map(|cell| (r, c, cell)))
-                    .collect::<Vec<_>>(),
-                COLS,
-            ));
-        let cols = self
-            .possibilities
-            .iter_cols_iter()
-            .enumerate()
-            .map(|(c, col_iter)| (
-                col_iter
-                    .enumerate()
-                    .filter_map(|(r, cell)| cell.as_ref().map(|cell| (r, c, cell)))
-                    .collect::<Vec<_>>(),
-                ROWS,
-            ));
+        // Find all cell combinations on a line that would use all their candidates
+        let combis: Vec<(Vec<(usize, usize)>, HashMap<u8, u8>)> = (2..max(ROWS, COLS))
+            .flat_map(|combi_size| {
+                // Build iterators through row/column cell possibilities if theres more cells than
+                // the current combination size
+                let rows = (0..ROWS)
+                    .map(|r| (0..COLS)
+                        .filter_map(|c| self.possibilities[(r, c)].as_ref().map(|_| (r, c)))
+                        .collect::<Vec<_>>()
+                    );
+                let cols = (0..COLS)
+                    .map(|c| (0..ROWS)
+                        .filter_map(|r| self.possibilities[(r, c)].as_ref().map(|_| (r, c)))
+                        .collect::<Vec<_>>()
+                    );
+                let lines = rows.chain(cols)
+                    .filter(|cells| cells.len() > combi_size);
 
-        // Find combination possibilities on rows and columns
-        let combis: Vec<(Vec<(usize, usize, Vec<u8>)>, HashMap<u8, u8>)> = rows
-            .chain(cols)
-            .map(|(cells, length)| (2..length - 1)
-                // TODO: skip cells that have been solved
-                // TODO: determine appropriate combination size, `max-1`?
-                // TODO: filter sizes larger than `max - 1` depending on row/column
-                .map(|size| cells
+                // Find combination possibilities on rows and columns
+                lines.flat_map(|cells| cells
                     .iter()
-                    .map(|(r, c, p)| (*r, *c, p.iter().cloned().collect::<Vec<u8>>()))
-                    // TODO: skip cells that have more possibilities than combination size here,
-                    // possible with combinations?
-                    .combinations(size)
-                    .filter_map(|combis| {
+                    .map(|coord| coord.to_owned())
+                    .combinations(combi_size)
+                    .filter_map(|combi_cells| {
                         // Skip if any cell has more possibilities than the combination size
-                        if combis.iter().any(|(_, _, possib)| possib.len() > size) {
+                        // TODO: do this check when building line iterators
+                        if combi_cells.iter().any(|coord| self.possibilities[*coord].as_ref().unwrap().len() > combi_size) {
                             return None;
                         }
 
                         // Count possibilities in each cell
-                        let combi_possibs: HashMap<u8, u8> = combis
+                        let combi_used: HashMap<u8, u8> = combi_cells
                             .iter()
-                            .map(|(_, _, possib)| count_map(possib))
+                            .map(|coord| count_map(self.possibilities[*coord].as_ref().unwrap()))
                             .fold(HashMap::new(), |mut map, possib| {
                                 possib.into_iter()
                                     .for_each(|(item, count)| {
@@ -734,18 +718,16 @@ impl Field {
                             });
 
                         // Total must not be larger than combination size
-                        if combi_possibs.values().sum::<u8>() > size as u8 {
+                        if combi_used.values().sum::<u8>() > combi_size as u8 {
                             return None;
                         }
 
-                        Some((combis, combi_possibs))
+                        Some((combi_cells, combi_used))
                     })
-                    .collect::<Vec<(Vec<(usize, usize, Vec<u8>)>, HashMap<u8, u8>)>>()
+                    .collect::<Vec<_>>()
                 )
-                .flatten()
-                .collect::<Vec<(Vec<(usize, usize, Vec<u8>)>, HashMap<u8, u8>)>>()
-            )
-            .flatten()
+                .collect::<Vec<_>>()
+            })
             .collect();
 
         // Keep track whether we solved anything
@@ -754,58 +736,42 @@ impl Field {
         // For each possibility combination, update the surrounding cell possibilities on the same line
         combis
             .into_iter()
-            .for_each(|(combis, combi_posibs)| {
-                // TODO: remove after debugging
-                // println!("# found naked combination (size: {})", combis.len());
+            .for_each(|(combi_cells, combi_posibs)| {
+                println!("# found naked combination (size: {})", combi_cells.len());
 
-                // Clone the left and top bands
-                let left_bands = self.left_bands.clone();
-                let top_bands = self.top_bands.clone();
+                // Build list of coordinates for all other cells in the same line
+                let line_cells: Box<dyn Iterator<Item = (usize, usize)>> = if combi_cells[0].0 == combi_cells[1].0 {
+                    Box::new((0..COLS).map(|c| (combi_cells[0].0, c)))
+                } else {
+                    Box::new((0..ROWS).map(|r| (r, combi_cells[0].1)))
+                };
+                let line_cells = line_cells
+                    .filter(|a| !combi_cells.iter().any(|b| a == b))
+                    .collect();
 
-                // Find the row/column cells iterator, if on a row or column depending on how the
-                // pairs are aligned
-                let cells_iter: Box<dyn Iterator<Item = (usize, usize, &mut Option<_>)>> =
-                    if combis[0].0 == combis[1].0 {
-                        Box::new(
-                            self.possibilities
-                                .iter_row_mut(combis[0].0)
-                                .enumerate()
-                                .map(|(c, cell)| (combis[0].0, c, cell)),
-                        )
-                    } else {
-                        Box::new(
-                            self.possibilities
-                                .iter_col_mut(combis[0].1)
-                                .enumerate()
-                                .map(|(r, cell)| (r, combis[0].1, cell)),
-                        )
-                    };
+                // Build a list of used items
+                let used = combi_posibs
+                    .into_iter()
+                    .flat_map(|(item, count)| vec![item; count as usize])
+                    .collect();
 
-                // Update cell possibilities for other cells on the same line
-                cells_iter
-                    .filter_map(|(r, c, p)| p.as_mut().map(|p| (r, c, p)))
-                    .filter(|(r, c, _)| !combis.iter().any(|(rr, cc, _)| r == rr && c == cc))
-                    .for_each(|(r, c, cell_possib)| {
-                        // Find all cell possibilities based on bands, remove combination items
-                        // TODO: should we OR here, or use a single band?
-                        let mut band_possib = left_bands[r].or(&top_bands[c], false);
-                        combi_posibs.iter().for_each(|(item, count)| for _ in 0..*count {
-                            band_possib.remove_item(item);
-                        });
-
-                        // Make sure the cell doesn't contain more possibilities than the
-                        // band list
-                        cell_possib.retain(|p| {
-                            if band_possib.remove_item(p).is_some() {
-                                true
-                            } else {
-                                println!("# removed cell possibility due to naked combination");
-                                solved = true;
-                                false
-                            }
-                        });
-                    });
+                // Retain used items in combination from other cells in same line
+                if self.eliminate_candidates(line_cells, &used) {
+                    solved = true;
+                }
             });
+
+        // TODO: remove after debugging
+        // println!("\n1. Candidates before ({}, {}): {:?}", r, c, cell_possib.iter().map(|c| to_char(*c)).sorted().collect::<Vec<_>>());
+        // println!("2. Combination cells: {:?}", combi_cells.iter().map(|(r, c, _)| (r, c)).sorted().collect::<Vec<_>>());
+        // combi_cells.iter()
+        //     .for_each(|(r, c, possib)|
+        //         println!("3. Combination cell candidates ({}, {}): {:?}", r, c, possib.iter().map(|c| to_char(*c)).sorted().collect::<Vec<_>>())
+        //     );
+        // println!("4. Recalculated candidates ({}, {}): {:?}", r, c, was.iter().map(|c| to_char(*c)).sorted().collect::<Vec<_>>());
+        // println!("5. Combination uses: ({}, {}): {:?}", r, c, combi_posibs.iter().map(|(k, v)| (to_char(*k), v)).sorted().collect::<HashMap<_, _>>());
+        // println!("6. Candidates left ({}, {}): {:?}", r, c, band_possib.iter().map(|c| to_char(*c)).sorted().collect::<Vec<_>>());
+        // println!("7. After ({}, {}): {:?}", r, c, cell_possib.iter().map(|c| to_char(*c)).sorted().collect::<Vec<_>>());
 
         solved
     }
@@ -845,7 +811,7 @@ impl fmt::Display for Field {
                 .zip(self.field.to_string().lines())
                 .enumerate()
                 .map(|(n, (left, field))| format!("{}  {} {}", left, n % 10, field))
-                .join("\n")
+                .join("\n"),
         )
     }
 }
