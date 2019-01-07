@@ -16,12 +16,12 @@ const EMPTY: char = '.';
 const ROWS: usize = 13;
 const COLS: usize = 12;
 
-type NumMatx = Matx<u8>;
+type NMatrix = Matrix<u8>;
 
 fn main() {
     // Load the matrices
-    let matrix_a = Matx::load("matrix_a.txt").expect("failed to load matrix A from file");
-    let matrix_b = Matx::load("matrix_b.txt").expect("failed to load matrix B from file");
+    let matrix_a = Matrix::load("matrix_a.txt").expect("failed to load matrix A from file");
+    let matrix_b = Matrix::load("matrix_b.txt").expect("failed to load matrix B from file");
 
     let mut field = Field::empty(matrix_a, matrix_b);
 
@@ -34,11 +34,11 @@ fn main() {
 }
 
 #[derive(Debug, Clone)]
-pub struct Matx<T> {
+pub struct Matrix<T> {
     pub cells: Vec<T>,
 }
 
-impl<T> Matx<T> {
+impl<T> Matrix<T> {
     /// Construct a new matrix from the data in the given vector.
     /// The given data should be row major.
     fn new(cells: Vec<T>) -> Self {
@@ -99,7 +99,7 @@ impl<T> Matx<T> {
     }
 }
 
-impl Matx<u8> {
+impl Matrix<u8> {
     /// Construct a new matrix with just zeros.
     pub fn zero() -> Self {
         Self::new(vec![0u8; ROWS * COLS])
@@ -160,7 +160,7 @@ impl Matx<u8> {
     }
 }
 
-impl<T> Index<usize> for Matx<T> {
+impl<T> Index<usize> for Matrix<T> {
     type Output = T;
 
     fn index(&self, i: usize) -> &T {
@@ -168,7 +168,7 @@ impl<T> Index<usize> for Matx<T> {
     }
 }
 
-impl<T> Index<(usize, usize)> for Matx<T> {
+impl<T> Index<(usize, usize)> for Matrix<T> {
     type Output = T;
 
     fn index(&self, (r, c): (usize, usize)) -> &T {
@@ -176,19 +176,19 @@ impl<T> Index<(usize, usize)> for Matx<T> {
     }
 }
 
-impl<T> IndexMut<usize> for Matx<T> {
+impl<T> IndexMut<usize> for Matrix<T> {
     fn index_mut(&mut self, i: usize) -> &mut T {
         &mut self.cells[i]
     }
 }
 
-impl<T> IndexMut<(usize, usize)> for Matx<T> {
+impl<T> IndexMut<(usize, usize)> for Matrix<T> {
     fn index_mut(&mut self, (r, c): (usize, usize)) -> &mut T {
         &mut self.cells[rc_to_i(r, c)]
     }
 }
 
-impl fmt::Display for Matx<u8> {
+impl fmt::Display for Matrix<u8> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\n", self.to_string())
     }
@@ -285,19 +285,19 @@ impl IndexMut<usize> for BandSet {
 #[derive(Debug, Clone)]
 pub struct Field {
     /// The original left matrix, still holding all values
-    orig_left: NumMatx,
+    orig_left: NMatrix,
 
     /// The original top matrix, still holding all values
-    orig_top: NumMatx,
+    orig_top: NMatrix,
 
     /// The current left matrix, holding all values left
-    left: NumMatx,
+    left: NMatrix,
 
     /// The current top matrix, holding all values left
-    top: NumMatx,
+    top: NMatrix,
 
     /// The current field state in which we solve
-    field: NumMatx,
+    field: NMatrix,
 
     /// A band set with rows for the left matrix, holding unused items for each row.
     left_bands: BandSet,
@@ -306,18 +306,18 @@ pub struct Field {
     top_bands: BandSet,
 
     /// A map holding all possible values for each cell.
-    possibilities: Matx<Vec<u8>>,
+    possibilities: Matrix<Vec<u8>>,
 }
 
 impl Field {
     /// Build a new empty field with the given `left` and `top` matrix.
-    pub fn empty(left: NumMatx, top: NumMatx) -> Self {
+    pub fn empty(left: NMatrix, top: NMatrix) -> Self {
         // Calculate the left and top bands
         let left_bands = BandSet::from(left.iter_rows_iter());
         let top_bands = BandSet::from(top.iter_cols_iter());
 
         // For each matrix cell, find possibilities
-        let possibilities = Matx::new(
+        let possibilities = Matrix::new(
             (0..ROWS)
                 .cartesian_product(0..COLS)
                 .map(|(r, c)| left_bands[r].and(&top_bands[c]))
@@ -329,7 +329,7 @@ impl Field {
             orig_top: top.clone(),
             left,
             top,
-            field: Matx::zero(),
+            field: Matrix::zero(),
             left_bands,
             top_bands,
             possibilities,
