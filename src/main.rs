@@ -425,7 +425,7 @@ impl Field {
             .collect();
 
         // List of solved fields, to apply in the end
-        let mut solved_list: Vec<(usize, usize, u8)> = Vec::new();
+        let mut solved_list: HashMap<(usize, usize), u8> = HashMap::new();
 
         // Find naked intersections for each row
         for r in 0..ROWS {
@@ -450,7 +450,9 @@ impl Field {
                         .enumerate()
                         .filter(|(c, _)| !self.field.has(r, *c))
                         .filter(|(_, col)| col.iter().any(|entry| *entry == item))
-                        .for_each(|(c, _)| solved_list.push((r, c, item)))
+                        .for_each(|(c, _)| {
+                            solved_list.insert((r, c), item);
+                        })
                 });
         }
 
@@ -477,13 +479,15 @@ impl Field {
                         .enumerate()
                         .filter(|(r, _)| !self.field.has(*r, c))
                         .filter(|(_, row)| row.iter().any(|entry| *entry == item))
-                        .for_each(|(r, _)| solved_list.push((r, c, item)))
+                        .for_each(|(r, _)| {
+                            solved_list.insert((r, c), item);
+                        })
                 });
         }
 
         // Apply the solved cells
         solved_list.iter()
-            .for_each(|(r, c, item)| {
+            .for_each(|((r, c), item)| {
                 println!("# solved naked intersection");
                 self.solved_cell(*r, *c, *item);
             });
