@@ -1,4 +1,4 @@
-#![feature(vec_remove_item)]
+#![feature(vec_remove_item, shrink_to)]
 
 extern crate itertools;
 
@@ -325,8 +325,7 @@ pub struct Field {
     top_bands: BandSet,
 
     /// A map holding all possible values for each cell.
-    // TODO: switch to just use vectors, remove option
-    possibilities: Matx<Option<Vec<u8>>>,
+    possibilities: Matx<Vec<u8>>,
 }
 
 impl Field {
@@ -340,7 +339,7 @@ impl Field {
         let possibilities = Matx::new(
             (0..ROWS)
                 .cartesian_product(0..COLS)
-                .map(|(r, c)| Some(left_bands[r].and(&top_bands[c], false)))
+                .map(|(r, c)| left_bands[r].and(&top_bands[c], false))
                 .collect(),
         );
 
@@ -369,7 +368,7 @@ impl Field {
         self.top_bands[c].subtract(value);
         self.left.remove_from_row(r, value);
         self.top.remove_from_col(c, value);
-        self.possibilities[(r, c)] = None;
+        self.possibilities[(r, c)] = vec![];
 
         // Set the cell
         self.field[(r, c)] = value;
@@ -396,7 +395,7 @@ impl Field {
         let mut changed = false;
 
         // Drop cells that have no possibilities
-        cells.retain(|coord| self.possibilities[*coord].is_some());
+        cells.retain(|coord| !self.possibilities[*coord].is_empty());
 
         // For each given cell, eliminate exceeding candidates
         for (r, c) in cells {
@@ -407,7 +406,7 @@ impl Field {
             });
 
             // Retain excess items not in new_possibs from current cell
-            let cell_possibs = self.possibilities[(r, c)].as_mut().unwrap();
+            let cell_possibs = &mut self.possibilities[(r, c)];
             cell_possibs.retain(|item| {
                 if new_possibs.remove_item(item).is_some() {
                     true
@@ -437,23 +436,13 @@ impl Field {
     ///
     /// If nothing could be solved `false` is returned.
     pub fn solve(&mut self) -> bool {
-        let count: usize = self
-            .possibilities
-            .cells
-            .iter()
-            .filter_map(|c| c.as_ref().map(|c| c.len()))
-            .sum();
+        let count: usize = self.possibilities.cells.iter().map(|c| c.len()).sum();
         println!("Input (remaining cell candidates: {}):\n{}", count, self);
 
         // Keep solving steps until no step finds anything anymore
         let mut step = 0;
         while self.solve_step() {
-            let count: usize = self
-                .possibilities
-                .cells
-                .iter()
-                .filter_map(|c| c.as_ref().map(|c| c.len()))
-                .sum();
+            let count: usize = self.possibilities.cells.iter().map(|c| c.len()).sum();
             println!(
                 "State after pass #{} (remaining cell candidates: {}):\n{}",
                 step, count, self
@@ -596,7 +585,8 @@ impl Field {
             .map(|(r, row_iter)| {
                 row_iter
                     .enumerate()
-                    .filter_map(|(c, cell)| cell.as_ref().map(|cell| (r, c, cell)))
+                    .filter(|(_, cell)| !cell.is_empty())
+                    .map(|(c, cell)| (r, c, cell))
                     .collect::<Vec<_>>()
             });
         let cols = self
@@ -606,7 +596,8 @@ impl Field {
             .map(|(c, col_iter)| {
                 col_iter
                     .enumerate()
-                    .filter_map(|(r, cell)| cell.as_ref().map(|cell| (r, c, cell)))
+                    .filter(|(_, cell)| !cell.is_empty())
+                    .map(|(r, cell)| (r, c, cell))
                     .collect::<Vec<_>>()
             });
 
@@ -694,12 +685,14 @@ impl Field {
                 // the current combination size
                 let rows = (0..ROWS).map(|r| {
                     (0..COLS)
-                        .filter_map(|c| self.possibilities[(r, c)].as_ref().map(|_| (r, c)))
+                        .filter(|c| !self.possibilities[(r, *c)].is_empty())
+                        .map(|c| (r, c))
                         .collect::<Vec<_>>()
                 });
                 let cols = (0..COLS).map(|c| {
                     (0..ROWS)
-                        .filter_map(|r| self.possibilities[(r, c)].as_ref().map(|_| (r, c)))
+                        .filter(|r| !self.possibilities[(*r, c)].is_empty())
+                        .map(|r| (r, c))
                         .collect::<Vec<_>>()
                 });
                 let lines = rows.chain(cols).filter(|cells| cells.len() > combi_size);
@@ -714,18 +707,17 @@ impl Field {
                             .filter_map(|combi_cells| {
                                 // Skip if any cell has more possibilities than the combination size
                                 // TODO: do this check when building line iterators
-                                if combi_cells.iter().any(|coord| {
-                                    self.possibilities[*coord].as_ref().unwrap().len() > combi_size
-                                }) {
+                                if combi_cells
+                                    .iter()
+                                    .any(|coord| self.possibilities[*coord].len() > combi_size)
+                                {
                                     return None;
                                 }
 
                                 // Count possibilities in each cell
                                 let combi_used: HashMap<u8, u8> = combi_cells
                                     .iter()
-                                    .map(|coord| {
-                                        count_map(self.possibilities[*coord].as_ref().unwrap())
-                                    })
+                                    .map(|coord| count_map(&self.possibilities[*coord]))
                                     .fold(HashMap::new(), |mut map, possib| {
                                         possib.into_iter().for_each(|(item, count)| {
                                             map.entry(item)
