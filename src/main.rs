@@ -814,7 +814,7 @@ impl Field {
 impl fmt::Display for Field {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // Determine the width of the left matrix, with separating spaces
-        let left_width = COLS * 2 - 1;
+        let left_width = COLS * 2;
 
         // Print the top matrix first
         write!(
@@ -827,6 +827,14 @@ impl fmt::Display for Field {
                 .join("\n")
         )?;
 
+        // Print column numbers
+        write!(
+            f,
+            "{}{}\n",
+            vec![' '; left_width + 3].iter().join(""),
+            (0..COLS).map(|n| n % 10).join(" "),
+        )?;
+
         // Print the left and field matrix
         write!(
             f,
@@ -835,7 +843,8 @@ impl fmt::Display for Field {
                 .to_string()
                 .lines()
                 .zip(self.field.to_string().lines())
-                .map(|(left, field)| format!("{}   {}", left, field))
+                .enumerate()
+                .map(|(n, (left, field))| format!("{}  {} {}", left, n % 10, field))
                 .join("\n")
         )
     }
