@@ -20,8 +20,10 @@ type NMatrix = Matrix<u8>;
 
 fn main() {
     // Load the matrices
-    let matrix_left = Matrix::load("res/matrix_left.txt").expect("failed to load left matrix from file");
-    let matrix_top = Matrix::load("res/matrix_top.txt").expect("failed to load top matrix from file");
+    let matrix_left =
+        Matrix::load("res/matrix_left.txt").expect("failed to load left matrix from file");
+    let matrix_top =
+        Matrix::load("res/matrix_top.txt").expect("failed to load top matrix from file");
 
     let mut field = Field::empty(matrix_left, matrix_top);
 
@@ -786,7 +788,7 @@ impl Field {
     /// Inspired by: http://www.sudokuwiki.org/Hidden_Candidates#HT
     fn solve_hidden_combis(&mut self) -> bool {
         // Find all cell combinations on a line that would use all their candidates
-        let combis: Vec<(Vec<(usize, usize)>, HashMap<u8, u8>)> = (2..max(ROWS, COLS))
+        let _combis: Vec<(Vec<(usize, usize)>, HashMap<u8, u8>)> = (2..max(ROWS, COLS))
             .flat_map(|combi_size| {
                 // Build iterators through row/column cell possibilities if theres more cells than
                 // the current combination size
@@ -938,39 +940,52 @@ impl Field {
         let row_counts = self
             .possibilities
             .iter_rows_iter()
-            .map(|cells_iter| cells_iter.fold(HashMap::new(), |mut map, possibs| {
-                possibs.iter().unique().for_each(|item| *map.entry(*item).or_insert(0) += 1);
-                map
-            }))
+            .map(|cells_iter| {
+                cells_iter.fold(HashMap::new(), |mut map, possibs| {
+                    possibs
+                        .iter()
+                        .unique()
+                        .for_each(|item| *map.entry(*item).or_insert(0) += 1);
+                    map
+                })
+            })
             .collect::<Vec<HashMap<u8, u8>>>();
         let col_counts = self
             .possibilities
             .iter_cols_iter()
-            .map(|cells_iter| cells_iter.fold(HashMap::new(), |mut map, possibs| {
-                possibs.iter().unique().for_each(|item| *map.entry(*item).or_insert(0) += 1);
-                map
-            }))
+            .map(|cells_iter| {
+                cells_iter.fold(HashMap::new(), |mut map, possibs| {
+                    possibs
+                        .iter()
+                        .unique()
+                        .for_each(|item| *map.entry(*item).or_insert(0) += 1);
+                    map
+                })
+            })
             .collect::<Vec<HashMap<u8, u8>>>();
 
         // Select X-Wing sets (each having two cell coordinates) on rows per item
         let row_sets = row_counts
             .iter()
             .enumerate()
-            .flat_map(|(r, counts)| counts
-                .iter()
-                .filter(|(_, x)| **x == 2)
-                .map(move |(item, _)| (item, r))
-                // Find the coordinates for the two cells having this value
-                .map(|(item, r)| (
-                    item,
-                    self.possibilities
-                        .iter_row(r)
-                        .enumerate()
-                        .filter(|(_, items)| items.contains(item))
-                        .map(|(c, _)| (r, c))
-                        .collect::<Vec<_>>(),
-                ))
-            )
+            .flat_map(|(r, counts)| {
+                counts
+                    .iter()
+                    .filter(|(_, x)| **x == 2)
+                    .map(move |(item, _)| (item, r))
+                    // Find the coordinates for the two cells having this value
+                    .map(|(item, r)| {
+                        (
+                            item,
+                            self.possibilities
+                                .iter_row(r)
+                                .enumerate()
+                                .filter(|(_, items)| items.contains(item))
+                                .map(|(c, _)| (r, c))
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+            })
             .fold(HashMap::new(), |mut map, (item, coords)| {
                 map.entry(item).or_insert(vec![]).push(coords);
                 map
@@ -978,21 +993,24 @@ impl Field {
         let col_sets = col_counts
             .iter()
             .enumerate()
-            .flat_map(|(c, counts)| counts
-                .iter()
-                .filter(|(_, x)| **x == 2)
-                .map(move |(item, _)| (item, c))
-                // Find the coordinates for the two cells having this value
-                .map(|(item, c)| (
-                    item,
-                    self.possibilities
-                        .iter_col(c)
-                        .enumerate()
-                        .filter(|(_, items)| items.contains(item))
-                        .map(|(r, _)| (r, c))
-                        .collect::<Vec<_>>(),
-                ))
-            )
+            .flat_map(|(c, counts)| {
+                counts
+                    .iter()
+                    .filter(|(_, x)| **x == 2)
+                    .map(move |(item, _)| (item, c))
+                    // Find the coordinates for the two cells having this value
+                    .map(|(item, c)| {
+                        (
+                            item,
+                            self.possibilities
+                                .iter_col(c)
+                                .enumerate()
+                                .filter(|(_, items)| items.contains(item))
+                                .map(|(r, _)| (r, c))
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+            })
             .fold(HashMap::new(), |mut map, (item, coords)| {
                 map.entry(item).or_insert(vec![]).push(coords);
                 map
@@ -1000,7 +1018,8 @@ impl Field {
         let unit_sets = row_sets.iter().chain(col_sets.iter());
 
         // Check whether there are items with exactly two sets
-        unit_sets.filter(|(_, sets)| sets.len() == 2)
+        unit_sets
+            .filter(|(_, sets)| sets.len() == 2)
             .for_each(|(item, sets)| {
                 // We found a hidden combination, not yet implemented
                 panic!(
