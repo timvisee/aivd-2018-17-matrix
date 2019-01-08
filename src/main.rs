@@ -20,10 +20,10 @@ type NMatrix = Matrix<u8>;
 
 fn main() {
     // Load the matrices
-    let matrix_a = Matrix::load("matrix_a.txt").expect("failed to load matrix A from file");
-    let matrix_b = Matrix::load("matrix_b.txt").expect("failed to load matrix B from file");
+    let matrix_left = Matrix::load("res/matrix_left.txt").expect("failed to load left matrix from file");
+    let matrix_top = Matrix::load("res/matrix_top.txt").expect("failed to load top matrix from file");
 
-    let mut field = Field::empty(matrix_a, matrix_b);
+    let mut field = Field::empty(matrix_left, matrix_top);
 
     println!("Start solving...");
     if field.solve() {
