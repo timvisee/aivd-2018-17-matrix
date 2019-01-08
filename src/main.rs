@@ -695,15 +695,25 @@ impl Field {
                                     return None;
                                 }
 
-                                // Count possibilities in each cell
+                                // Find the left or top band for the unit, aligned with all cells
+                                let unit_band = if combi_cells[0].0 == combi_cells[1].0 {
+                                    &self.left_bands[combi_cells[0].0]
+                                } else {
+                                    &self.top_bands[combi_cells[0].1]
+                                };
+
+                                // Count possibilities in each cell, always assume each item is
+                                // used once in each cell upto the maximum in that unit band
                                 let combi_used: HashMap<u8, u8> = combi_cells
                                     .iter()
                                     .map(|coord| count_map(&self.possibilities[*coord]))
                                     .fold(HashMap::new(), |mut map, possib| {
-                                        possib.into_iter().for_each(|(item, count)| {
+                                        possib.into_iter().for_each(|(item, _)| {
                                             map.entry(item)
-                                                .and_modify(|cur| *cur = max(*cur, count))
-                                                .or_insert(count);
+                                                .and_modify(|cur| {
+                                                    *cur = min(*cur + 1, unit_band.map[&item])
+                                                })
+                                                .or_insert(1);
                                         });
                                         map
                                     });
