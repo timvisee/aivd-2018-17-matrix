@@ -1301,26 +1301,28 @@ fn bruteforce(field: Field) {
         .collect::<Vec<_>>();
     let cols: Vec<Vec<[u8; ROWS]>> = cols
         .into_par_iter()
-        .map(|(c, col)| col
-             .enumerate()
-             .map(|(r, p)| if p.is_empty() {
-                    vec![field.field[(r, c)]]
-                } else {
-                    p.into_iter().unique().map(|p| *p).collect()
+        .map(|(c, col)| {
+            col.enumerate()
+                .map(|(r, p)| {
+                    if p.is_empty() {
+                        vec![field.field[(r, c)]]
+                    } else {
+                        p.into_iter().unique().map(|p| *p).collect()
+                    }
                 })
-            .multi_cartesian_product()
-            .filter(|cells| {
-                field.top_bands[c].map
-                    .iter()
-                    .all(|(item, count)| cells.iter().filter(|c| c == &item).count() as u8 == *count)
-            })
-            .map(|cells| {
-                let mut a = [0; ROWS];
-                a.copy_from_slice(&cells);
-                a
-            })
-            .collect()
-        )
+                .multi_cartesian_product()
+                .filter(|cells| {
+                    field.top_bands[c].map.iter().all(|(item, count)| {
+                        cells.iter().filter(|c| c == &item).count() as u8 == *count
+                    })
+                })
+                .map(|cells| {
+                    let mut a = [0; ROWS];
+                    a.copy_from_slice(&cells);
+                    a
+                })
+                .collect()
+        })
         .collect();
 
     // Print the results
@@ -1334,22 +1336,23 @@ fn bruteforce(field: Field) {
     let chunk_candidates: Vec<Vec<Vec<&[u8; ROWS]>>> = cols
         .par_chunks(2)
         .map(|chunk_cols| {
-            chunk_cols.iter()
+            chunk_cols
+                .iter()
                 .multi_cartesian_product()
                 .filter(|chunk| {
-                    (0..COLS)
-                        .into_par_iter()
-                        .all(|c| {
-                            let mut map = HashMap::new();
-                            chunk.iter().for_each(|cells| *map.entry(cells[c]).or_insert(0) += 1);
-                            map.into_iter().all(|(item, count)| {
-                                if let Some(item) = field.top_bands[c].map.get(&item) {
-                                    item >= &count
-                                } else {
-                                    false
-                                }
-                            })
+                    (0..COLS).into_par_iter().all(|c| {
+                        let mut map = HashMap::new();
+                        chunk
+                            .iter()
+                            .for_each(|cells| *map.entry(cells[c]).or_insert(0) += 1);
+                        map.into_iter().all(|(item, count)| {
+                            if let Some(item) = field.top_bands[c].map.get(&item) {
+                                item >= &count
+                            } else {
+                                false
+                            }
                         })
+                    })
                 })
                 .inspect(|chunk| println!("Chunk: {:?}", chunk))
                 .collect()
@@ -1363,13 +1366,14 @@ fn bruteforce(field: Field) {
         .into_iter()
         .multi_cartesian_product()
         .filter(|chunks| {
-            (0..COLS)
-                .into_par_iter()
-                .all(|c| {
-                    let mut map = HashMap::new();
-                    chunks.iter().flatten().for_each(|cells| *map.entry(cells[c]).or_insert(0) += 1);
-                    map == field.top_bands[c].map
-                })
+            (0..COLS).into_par_iter().all(|c| {
+                let mut map = HashMap::new();
+                chunks
+                    .iter()
+                    .flatten()
+                    .for_each(|cells| *map.entry(cells[c]).or_insert(0) += 1);
+                map == field.top_bands[c].map
+            })
         })
         .for_each(|chunks| {
             let vec = chunks
