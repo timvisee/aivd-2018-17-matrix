@@ -446,6 +446,7 @@ impl Field {
             || self.solve_naked_intersections()
             || self.solve_naked_pairs()
             || self.solve_x_wing()
+            || self.solve_sword_fish()
             || self.solve_naked_combis()
             || self.solve_hidden_combis()
     }
@@ -1030,6 +1031,159 @@ impl Field {
             });
 
         false
+    }
+
+    /// Solve sword fish sets.
+    ///
+    /// Inspired by: http://www.sudokuwiki.org/Sword_Fish_Strategy
+    fn solve_sword_fish(&mut self) -> bool {
+        // Count candidates for each row and column, each counting only once per cell
+        let row_counts = self
+            .possibilities
+            .iter_rows_iter()
+            .map(|cells_iter| {
+                cells_iter.fold(HashMap::new(), |mut map, possibs| {
+                    possibs
+                        .iter()
+                        .unique()
+                        .for_each(|item| *map.entry(*item).or_insert(0) += 1);
+                    map
+                })
+            })
+            .collect::<Vec<HashMap<u8, u8>>>();
+        let col_counts = self
+            .possibilities
+            .iter_cols_iter()
+            .map(|cells_iter| {
+                cells_iter.fold(HashMap::new(), |mut map, possibs| {
+                    possibs
+                        .iter()
+                        .unique()
+                        .for_each(|item| *map.entry(*item).or_insert(0) += 1);
+                    map
+                })
+            })
+            .collect::<Vec<HashMap<u8, u8>>>();
+
+        // Select X-Wing sets (each having two cell coordinates) on rows per item
+        let row_sets = row_counts
+            .iter()
+            .enumerate()
+            .flat_map(|(r, counts)| {
+                counts
+                    .iter()
+                    .filter(|(_, x)| **x == 2 || **x == 3)
+                    .map(move |(item, _)| (item, r))
+                    // Find the coordinates for the two cells having this value
+                    .map(|(item, r)| {
+                        (
+                            item,
+                            self.possibilities
+                                .iter_row(r)
+                                .enumerate()
+                                .filter(|(_, items)| items.contains(item))
+                                .map(|(c, _)| (r, c))
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+            })
+            .fold(HashMap::new(), |mut map, (item, coords)| {
+                map.entry(item).or_insert(vec![]).push(coords);
+                map
+            });
+        let col_sets = col_counts
+            .iter()
+            .enumerate()
+            .flat_map(|(c, counts)| {
+                counts
+                    .iter()
+                    .filter(|(_, x)| **x == 2 || **x == 3)
+                    .map(move |(item, _)| (item, c))
+                    // Find the coordinates for the two cells having this value
+                    .map(|(item, c)| {
+                        (
+                            item,
+                            self.possibilities
+                                .iter_col(c)
+                                .enumerate()
+                                .filter(|(_, items)| items.contains(item))
+                                .map(|(r, _)| (r, c))
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+            })
+            .fold(HashMap::new(), |mut map, (item, coords)| {
+                map.entry(item).or_insert(vec![]).push(coords);
+                map
+            });
+        let unit_sets = row_sets.iter().chain(col_sets.iter());
+
+        // Keep track whehter we solved something
+        let mut solved = false;
+
+        // Check whether there are items with exactly two sets
+        unit_sets
+            .filter(|(_, sets)| sets.len() == 3)
+            .for_each(|(item, sets)| {
+                // Determine whether sets are a row or column
+                let is_row = sets[0][0].0 == sets[0][1].0;
+
+                // Collect all coordinates
+                let coords: Vec<(usize, usize)> = sets.iter().flatten().map(|c| *c).collect();
+
+                // Find the indices on units the cells are located on
+                let unit_positions: Vec<usize> = coords
+                    .iter()
+                    .map(|coord| if is_row { coord.1 } else { coord.0 })
+                    .unique()
+                    .collect();
+
+                // There must be exactly three positions
+                if unit_positions.len() != 3 {
+                    return;
+                }
+
+                // We found a hidden combination, report
+                println!("# found sword fish set for {}: {:?}", to_char(**item), sets,);
+
+                // Collect all coordinates for cells on units crossing through set items, except
+                // the items themselves
+                let crossing_iters: Box<dyn Iterator<Item = (usize, usize)>> = if is_row {
+                    Box::new(
+                        (0..ROWS)
+                            .flat_map(|r| {
+                                vec![
+                                    (r, unit_positions[0]),
+                                    (r, unit_positions[1]),
+                                    (r, unit_positions[2]),
+                                ]
+                            })
+                            .into_iter(),
+                    )
+                } else {
+                    Box::new(
+                        (0..COLS)
+                            .flat_map(|c| {
+                                vec![
+                                    (unit_positions[0], c),
+                                    (unit_positions[1], c),
+                                    (unit_positions[2], c),
+                                ]
+                            })
+                            .into_iter(),
+                    )
+                };
+                let eliminate_coords: Vec<(usize, usize)> = crossing_iters
+                    .filter(|coord| !coords.contains(coord))
+                    .collect();
+
+                // Collect all coordinates, eliminate the used value
+                if self.eliminate_candidates(eliminate_coords, &vec![**item]) {
+                    solved = true;
+                }
+            });
+
+        solved
     }
 }
 
