@@ -875,7 +875,6 @@ impl Field {
                                 // Count the combinations, return if count doesn't satisfy
                                 // combination size
                                 let combi_used_count = combi_used.values().sum::<u8>();
-                                println!("Size: {}, extra: {}", combi_size, combi_used_count);
                                 if combi_used_count < combi_size as u8 {
                                     return None;
                                 }
