@@ -445,10 +445,10 @@ impl Field {
         self.solve_naked_singles()
             || self.solve_naked_intersections()
             || self.solve_naked_pairs()
-            || self.solve_x_wing()
-            || self.solve_sword_fish()
             || self.solve_naked_combis()
             || self.solve_hidden_combis()
+            || self.solve_x_wing()
+            || self.solve_sword_fish()
     }
 
     // TODO: do not clone in here
