@@ -1,6 +1,7 @@
 #![feature(vec_remove_item, shrink_to)]
 
 extern crate itertools;
+extern crate rayon;
 
 use std::cmp::{max, min};
 use std::collections::HashMap;
@@ -10,6 +11,7 @@ use std::io::Result as IoResult;
 use std::ops::{Index, IndexMut};
 
 use itertools::Itertools;
+use rayon::prelude::*;
 
 const EMPTY: char = '.';
 
@@ -19,20 +21,24 @@ const COLS: usize = 12;
 type NMatrix = Matrix<u8>;
 
 fn main() {
-    // Load the matrices
+    // Load the matrices, initialize an empty field
     let matrix_left =
         Matrix::load("res/matrix_left.txt").expect("failed to load left matrix from file");
     let matrix_top =
         Matrix::load("res/matrix_top.txt").expect("failed to load top matrix from file");
-
     let mut field = Field::empty(matrix_left, matrix_top);
 
+    // Start solving using strategies
     println!("Start solving...");
     if field.solve() {
         println!("Solving stalled, could not progress any further");
     } else {
         println!("Failed to solve any cell");
     }
+
+    // Attempt to brute force
+    println!("Starting brute force attempt!");
+    bruteforce(field);
 }
 
 #[derive(Debug, Clone)]
@@ -1281,4 +1287,100 @@ mod tests {
         assert_eq!(rc_to_i(1, 0), COLS);
         assert_eq!(rc_to_i(2, 3), COLS * 2 + 3);
     }
+}
+
+/// Attempt to brute force the solution
+fn bruteforce(field: Field) {
+    println!("Generating column candidates...");
+
+    // Collect the collumn possibilities
+    let cols = field
+        .possibilities
+        .iter_cols_iter()
+        .enumerate()
+        .collect::<Vec<_>>();
+    let cols: Vec<Vec<[u8; ROWS]>> = cols
+        .into_par_iter()
+        .map(|(c, col)| col
+             .enumerate()
+             .map(|(r, p)| if p.is_empty() {
+                    vec![field.field[(r, c)]]
+                } else {
+                    p.into_iter().unique().map(|p| *p).collect()
+                })
+            .multi_cartesian_product()
+            .filter(|cells| {
+                field.top_bands[c].map
+                    .iter()
+                    .all(|(item, count)| cells.iter().filter(|c| c == &item).count() as u8 == *count)
+            })
+            .map(|cells| {
+                let mut a = [0; ROWS];
+                a.copy_from_slice(&cells);
+                a
+            })
+            .collect()
+        )
+        .collect();
+
+    // Print the results
+    println!("Candidates for columns:");
+    for (c, col) in cols.iter().enumerate() {
+        println!("- #{}, candidates: {}", c, col.len());
+    }
+    println!("Finding candidates for column chunks...");
+
+    // For each chunk, collect all candidates
+    let chunk_candidates: Vec<Vec<Vec<&[u8; ROWS]>>> = cols
+        .par_chunks(2)
+        .map(|chunk_cols| {
+            chunk_cols.iter()
+                .multi_cartesian_product()
+                .filter(|chunk| {
+                    (0..COLS)
+                        .into_par_iter()
+                        .all(|c| {
+                            let mut map = HashMap::new();
+                            chunk.iter().for_each(|cells| *map.entry(cells[c]).or_insert(0) += 1);
+                            map.into_iter().all(|(item, count)| {
+                                if let Some(item) = field.top_bands[c].map.get(&item) {
+                                    item >= &count
+                                } else {
+                                    false
+                                }
+                            })
+                        })
+                })
+                .inspect(|chunk| println!("Chunk: {:?}", chunk))
+                .collect()
+        })
+        .collect();
+
+    println!("Done collecting all chunks");
+    println!("Finding candidates for whole fields");
+
+    chunk_candidates
+        .into_iter()
+        .multi_cartesian_product()
+        .filter(|chunks| {
+            (0..COLS)
+                .into_par_iter()
+                .all(|c| {
+                    let mut map = HashMap::new();
+                    chunks.iter().flatten().for_each(|cells| *map.entry(cells[c]).or_insert(0) += 1);
+                    map == field.top_bands[c].map
+                })
+        })
+        .for_each(|chunks| {
+            let vec = chunks
+                .iter()
+                .flatten()
+                .flat_map(|cols| cols.into_iter())
+                .cloned()
+                .collect();
+            let matrix: NMatrix = Matrix::new(vec);
+            println!("FOUND SOLUTION:\n{}", matrix);
+        });
+
+    println!("DONE");
 }
