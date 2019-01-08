@@ -444,6 +444,7 @@ impl Field {
             || self.solve_naked_intersections()
             || self.solve_naked_pairs()
             || self.solve_naked_combis()
+            || self.solve_hidden_combis()
     }
 
     // TODO: do not clone in here
@@ -604,12 +605,12 @@ impl Field {
                         map
                     })
                     .into_iter()
-                    .filter(|(_, i)| i.len() >= 2)
                     .inspect(|(_, i)| if i.len() > 2 {
                         panic!("# naked pairs: more than two cells for possibilities, not yet implemented");
                         // TODO: find all pairs in a row/column for the collected cell coordinates
                         // with matching cell possibilities
                     })
+                    .filter(|(_, i)| i.len() == 2)
                     .map(|(possib, coords)| (coords[0], coords[1], possib))
                     .collect();
 
@@ -774,6 +775,159 @@ impl Field {
         // println!("7. After ({}, {}): {:?}", r, c, cell_possib.iter().map(|c| to_char(*c)).sorted().collect::<Vec<_>>());
 
         solved
+    }
+
+    /// Solve hidden combinations (being pairs, triples, quads or a larger combination).
+    /// A combination of cells on the same row or column that together uniquely contain a set of
+    /// possibilities not used in other cells in that unit, must contain those values. Other items
+    /// can be eliminated from the cells in this combination.
+    ///
+    /// Inspired by: http://www.sudokuwiki.org/Hidden_Candidates#HT
+    fn solve_hidden_combis(&mut self) -> bool {
+        // Find all cell combinations on a line that would use all their candidates
+        let combis: Vec<(Vec<(usize, usize)>, HashMap<u8, u8>)> = (2..max(ROWS, COLS))
+            .flat_map(|combi_size| {
+                // Build iterators through row/column cell possibilities if theres more cells than
+                // the current combination size
+                let rows = (0..ROWS).map(|r| {
+                    (0..COLS)
+                        .filter(|c| !self.possibilities[(r, *c)].is_empty())
+                        .map(|c| (r, c))
+                        .collect::<Vec<_>>()
+                });
+                let cols = (0..COLS).map(|c| {
+                    (0..ROWS)
+                        .filter(|r| !self.possibilities[(*r, c)].is_empty())
+                        .map(|r| (r, c))
+                        .collect::<Vec<_>>()
+                });
+                let lines = rows.chain(cols).filter(|cells| cells.len() > combi_size);
+
+                // Find combination possibilities on rows and columns
+                lines
+                    .flat_map(|cells| {
+                        cells
+                            .iter()
+                            .map(|coord| coord.to_owned())
+                            .combinations(combi_size)
+                            .filter_map(|combi_cells| {
+                                // Determine whether this combination is a row, get the unit index
+                                let is_row = combi_cells[0].0 == combi_cells[1].0;
+                                let unit_index = if is_row { combi_cells[0].0 } else { combi_cells[0].1 };
+
+                                // Find the left or top band for the unit, aligned with all cells
+                                let unit_band = if is_row {
+                                    &self.left_bands[combi_cells[0].0]
+                                } else {
+                                    &self.top_bands[combi_cells[0].1]
+                                };
+
+                                // Build a list of all other unsolved cells in the same unit
+                                let other_cells: Box<dyn Iterator<Item = (usize, usize)>> = if is_row {
+                                    Box::new((0..COLS).map(|c| (unit_index, c)))
+                                } else {
+                                    Box::new((0..ROWS).map(|r| (r, unit_index)))
+                                };
+                                let other_cells = other_cells
+                                    .filter(|coord| !combi_cells.contains(coord));
+
+                                // Count possibilities in each cell, always assume each item is
+                                // used once in each cell upto the maximum in that unit band
+                                let mut combi_used: HashMap<u8, u8> = combi_cells
+                                    .iter()
+                                    .map(|coord| count_map(&self.possibilities[*coord]))
+                                    .fold(HashMap::new(), |mut map, possib| {
+                                        possib.into_iter().for_each(|(item, _)| {
+                                            map.entry(item)
+                                                .and_modify(|cur| {
+                                                    *cur = min(*cur + 1, unit_band.map[&item])
+                                                })
+                                                .or_insert(1);
+                                        });
+                                        map
+                                    });
+
+                                // Count possibilities in each other cell, always assume each item is
+                                // used once in each cell upto the maximum in that unit band
+                                let other_used: HashMap<u8, u8> = other_cells
+                                    .map(|coord| count_map(&self.possibilities[coord]))
+                                    .fold(HashMap::new(), |mut map, possib| {
+                                        possib.into_iter().for_each(|(item, _)| {
+                                            map.entry(item)
+                                                .and_modify(|cur| {
+                                                    *cur = min(*cur + 1, unit_band.map[&item])
+                                                })
+                                                .or_insert(1);
+                                        });
+                                        map
+                                    });
+
+                                // Subtract used others from combis, to find items used more in
+                                // combinations
+                                other_used.iter()
+                                    .for_each(|(item, count)| {
+                                        if let Some(value) = combi_used.get_mut(item) {
+                                            *value = value.saturating_sub(*count);
+                                        }
+                                    });
+                                combi_used.retain(|_, count| *count > 0);
+
+                                // Count the combinations, return if count doesn't satisfy
+                                // combination size
+                                let combi_used_count = combi_used.values().sum::<u8>();
+                                println!("Size: {}, extra: {}", combi_size, combi_used_count);
+                                if combi_used_count < combi_size as u8 {
+                                    return None;
+                                }
+
+                                // We found a hidden combination, not yet implemented
+                                panic!(
+                                    "found hidden combination having 'combination size' additional items, logic not yet implemented (size: {}): {:?}",
+                                    combi_size,
+                                    combi_used,
+                                );
+
+                                // Some((combi_cells, combi_used))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        // // Keep track whether we solved anything
+        // let mut solved = false;
+
+        // // For each possibility combination, update the surrounding cell possibilities on the same line
+        // combis.into_iter().for_each(|(combi_cells, combi_posibs)| {
+        //     println!("# found naked combination (size: {})", combi_cells.len());
+
+        //     // Build list of coordinates for all other cells in the same line
+        //     let line_cells: Box<dyn Iterator<Item = (usize, usize)>> =
+        //         if combi_cells[0].0 == combi_cells[1].0 {
+        //             Box::new((0..COLS).map(|c| (combi_cells[0].0, c)))
+        //         } else {
+        //             Box::new((0..ROWS).map(|r| (r, combi_cells[0].1)))
+        //         };
+        //     let line_cells = line_cells
+        //         .filter(|a| !combi_cells.iter().any(|b| a == b))
+        //         .collect();
+
+        //     // Build a list of used items
+        //     let used = combi_posibs
+        //         .into_iter()
+        //         .flat_map(|(item, count)| vec![item; count as usize])
+        //         .collect();
+
+        //     // Retain used items in combination from other cells in same line
+        //     if self.eliminate_candidates(line_cells, &used) {
+        //         solved = true;
+        //     }
+        // });
+
+        // solved
+
+        false
     }
 }
 
