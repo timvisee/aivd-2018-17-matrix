@@ -443,6 +443,7 @@ impl Field {
         self.solve_naked_singles()
             || self.solve_naked_intersections()
             || self.solve_naked_pairs()
+            || self.solve_x_wing()
             || self.solve_naked_combis()
             || self.solve_hidden_combis()
     }
@@ -925,6 +926,89 @@ impl Field {
         // });
 
         // solved
+
+        false
+    }
+
+    /// Solve X-Wing sets.
+    ///
+    /// Inspired by: http://www.sudokuwiki.org/X_Wing_Strategy
+    fn solve_x_wing(&mut self) -> bool {
+        // Count candidates for each row and column, each counting only once per cell
+        let row_counts = self
+            .possibilities
+            .iter_rows_iter()
+            .map(|cells_iter| cells_iter.fold(HashMap::new(), |mut map, possibs| {
+                possibs.iter().unique().for_each(|item| *map.entry(*item).or_insert(0) += 1);
+                map
+            }))
+            .collect::<Vec<HashMap<u8, u8>>>();
+        let col_counts = self
+            .possibilities
+            .iter_cols_iter()
+            .map(|cells_iter| cells_iter.fold(HashMap::new(), |mut map, possibs| {
+                possibs.iter().unique().for_each(|item| *map.entry(*item).or_insert(0) += 1);
+                map
+            }))
+            .collect::<Vec<HashMap<u8, u8>>>();
+
+        // Select X-Wing sets (each having two cell coordinates) on rows per item
+        let row_sets = row_counts
+            .iter()
+            .enumerate()
+            .flat_map(|(r, counts)| counts
+                .iter()
+                .filter(|(_, x)| **x == 2)
+                .map(move |(item, _)| (item, r))
+                // Find the coordinates for the two cells having this value
+                .map(|(item, r)| (
+                    item,
+                    self.possibilities
+                        .iter_row(r)
+                        .enumerate()
+                        .filter(|(_, items)| items.contains(item))
+                        .map(|(c, _)| (r, c))
+                        .collect::<Vec<_>>(),
+                ))
+            )
+            .fold(HashMap::new(), |mut map, (item, coords)| {
+                map.entry(item).or_insert(vec![]).push(coords);
+                map
+            });
+        let col_sets = col_counts
+            .iter()
+            .enumerate()
+            .flat_map(|(c, counts)| counts
+                .iter()
+                .filter(|(_, x)| **x == 2)
+                .map(move |(item, _)| (item, c))
+                // Find the coordinates for the two cells having this value
+                .map(|(item, c)| (
+                    item,
+                    self.possibilities
+                        .iter_col(c)
+                        .enumerate()
+                        .filter(|(_, items)| items.contains(item))
+                        .map(|(r, _)| (r, c))
+                        .collect::<Vec<_>>(),
+                ))
+            )
+            .fold(HashMap::new(), |mut map, (item, coords)| {
+                map.entry(item).or_insert(vec![]).push(coords);
+                map
+            });
+        let unit_sets = row_sets.iter().chain(col_sets.iter());
+
+        // Check whether there are items with exactly two sets
+        unit_sets.filter(|(_, sets)| sets.len() == 2)
+            .for_each(|(item, sets)| {
+                // We found a hidden combination, not yet implemented
+                panic!(
+                    "found X-Wing set for {}, logic not yet implemented: {:?}",
+                    to_char(**item),
+                    sets,
+                );
+            });
 
         false
     }
