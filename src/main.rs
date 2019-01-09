@@ -1299,23 +1299,21 @@ type Col = [u8; ROWS];
 /// For each line in `lines`, return a vector with all possible combinations on that line.
 /// The given `lines` iterator must yield an iterator over the item candidates for a cell.
 /// The list of possibilities for each line is sorted.
-fn generate_line_possibilities(field: &Field, rows: bool)
-    -> Vec<Vec<Vec<u8>>>
-{
+fn generate_line_possibilities(field: &Field, rows: bool) -> Vec<Vec<Vec<u8>>> {
     // Collect the collumn possibilities
     let lines: Vec<Vec<Vec<u8>>> = if rows {
-            field
-                .possibilities
-                .iter_rows()
-                .map(|cell| cell.to_vec())
-                .collect::<Vec<_>>()
-        } else {
-            field
-                .possibilities
-                .iter_cols()
-                .map(|cell| cell.into_iter().cloned().collect())
-                .collect::<Vec<_>>()
-        };
+        field
+            .possibilities
+            .iter_rows()
+            .map(|cell| cell.to_vec())
+            .collect::<Vec<_>>()
+    } else {
+        field
+            .possibilities
+            .iter_cols()
+            .map(|cell| cell.into_iter().cloned().collect())
+            .collect::<Vec<_>>()
+    };
 
     let mut lines: Vec<Vec<Vec<u8>>> = lines
         .into_par_iter()
@@ -1364,11 +1362,13 @@ fn generate_row_possibilities(field: &Field) -> Vec<Vec<Row>> {
     generate_line_possibilities(field, true)
         .into_par_iter()
         .map(|row| {
-            row.into_iter().map(|possib| {
-                let mut arr = Row::default();
-                arr.copy_from_slice(&possib);
-                arr
-            }).collect()
+            row.into_iter()
+                .map(|possib| {
+                    let mut arr = Row::default();
+                    arr.copy_from_slice(&possib);
+                    arr
+                })
+                .collect()
         })
         .collect()
 }
@@ -1377,11 +1377,13 @@ fn generate_col_possibilities(field: &Field) -> Vec<Vec<Col>> {
     generate_line_possibilities(field, false)
         .into_par_iter()
         .map(|row| {
-            row.into_iter().map(|possib| {
-                let mut arr = Col::default();
-                arr.copy_from_slice(&possib);
-                arr
-            }).collect()
+            row.into_iter()
+                .map(|possib| {
+                    let mut arr = Col::default();
+                    arr.copy_from_slice(&possib);
+                    arr
+                })
+                .collect()
         })
         .collect()
 }
@@ -1426,11 +1428,11 @@ impl Node {
                 let place = &mut items[item];
                 *place = Self::empty_some();
                 place
-            },
+            }
             Node::None => {
                 mem::replace(self, Self::empty_some());
                 self.set(item)
-            },
+            }
         }
     }
 }
@@ -1474,7 +1476,6 @@ fn bruteforce(field: Field) {
         .collect();
     println!("Done building trees");
     println!("TREE: {:?}", col_trees);
-
 
     println!("Finding candidates for column chunks...\n");
 
