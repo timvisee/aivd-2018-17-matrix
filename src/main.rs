@@ -1491,7 +1491,6 @@ fn iter_search(
             .take_while(|(i, item)| {
                 let tree = unsafe { col_trees[*i].get(**item as usize) };
                 if tree.is_some() {
-                    // possib_nodes[*i] = tree;
                     mem::replace(&mut possib_nodes[*i], tree);
                     true
                 } else {
@@ -1521,24 +1520,32 @@ fn iter_search(
                 progress,
             );
         } else {
-            // Obtain the rows for this field, collect the items, build a matrix
-            let items: Vec<u8> = row_indices
-                .into_iter()
-                .enumerate()
-                .flat_map(|(i, row_index)| rows[i][*row_index].into_iter())
-                .map(|x| x + 1)
-                .collect();
-            let matrix = Matrix::new(items);
+            // Do a quick row/column item count check
+            let solution_left_bands = BandSet::from(
+                row_indices
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, row_index)| rows[i][*row_index].into_iter()),
+            );
+            if field.left_bands == solution_left_bands {
+                let solution_top_bands = BandSet::from((0..COLS).map(|c| {
+                    row_indices
+                        .into_iter()
+                        .enumerate()
+                        .map(move |(i, row_index)| &rows[i][*row_index][c])
+                }));
+                if field.top_bands == solution_top_bands {
+                    // Build the matrix
+                    let items: Vec<u8> = row_indices
+                        .into_iter()
+                        .enumerate()
+                        .flat_map(|(i, row_index)| rows[i][*row_index].into_iter())
+                        .map(|x| x + 1)
+                        .collect();
+                    let matrix = Matrix::new(items);
 
-            // Count rows and columns
-            let solution_left_bands = BandSet::from(matrix.iter_rows_iter());
-            let solution_top_bands = BandSet::from(matrix.iter_cols_iter());
-
-            // Test for success
-            if field.left_bands == solution_left_bands && field.top_bands == solution_top_bands {
-                println!("\nFOUND SOLUTION:\n{}\n", matrix);
-            } else {
-                println!("Invalid");
+                    println!("\nFOUND SOLUTION:\n{}\n", matrix);
+                }
             }
         }
 
