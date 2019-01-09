@@ -1395,12 +1395,14 @@ enum Node {
 }
 
 impl Node {
-    /// Construct a new `Some` value.
+    /// Construct a new `Some` value having no items.
+    #[inline(always)]
     fn empty_some() -> Node {
         Node::Some(Box::new(Self::new_arr()))
     }
 
-    /// Construct a new tree array, used in a `Some` value.
+    /// Construct a new emtpy tree array, used in a `Some` value.
+    #[inline(always)]
     fn new_arr() -> [Self; 26] {
         unsafe {
             let mut arr: [Self; 26] = mem::uninitialized();
@@ -1413,20 +1415,22 @@ impl Node {
 
     // TODO: get_unchecked
     #[inline(always)]
-    fn get<'a>(&'a self, item: usize) -> &'a Self {
+    unsafe fn get<'a>(&'a self, item: usize) -> &'a Self {
         match self {
-            Node::Some(items) => &items[item],
-            n => n,
+            Node::Some(items) => &items.get_unchecked(item),
+            n @ Node::None => n,
         }
     }
 
     // TODO: get_unchecked_mut
     #[inline(always)]
-    fn set<'a>(&'a mut self, item: usize) -> &'a mut Self {
+    unsafe fn set<'a>(&'a mut self, item: usize) -> &'a mut Self {
         match self {
             Node::Some(items) => {
-                let place = &mut items[item];
-                *place = Self::empty_some();
+                let place = items.get_unchecked_mut(item);
+                if !place.is_some() {
+                    *place = Self::empty_some();
+                }
                 place
             }
             Node::None => {
@@ -1435,112 +1439,114 @@ impl Node {
             }
         }
     }
+
+    #[inline(always)]
+    fn is_some(&self) -> bool {
+        if let Node::Some(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[inline(always)]
+fn iter_search(rows: &[Vec<Row>], col_trees: &[&Node], row_counts: &[usize]) {
+    rows[0].par_iter().enumerate().for_each(|(i, possib)| {
+        if rows.len() >= 11 {
+            println!("#{} -> {} / {}", rows.len(), i, row_counts[0]);
+        }
+
+        // Build a map with nodes for this possibility from the given trees
+        let mut possib_nodes = [
+            &Node::None,
+            &Node::None,
+            &Node::None,
+            &Node::None,
+            &Node::None,
+            &Node::None,
+            &Node::None,
+            &Node::None,
+            &Node::None,
+            &Node::None,
+            &Node::None,
+            &Node::None,
+        ];
+
+        // Find tree nodes for each character, count and stop on failure
+        let count = possib
+            .into_iter()
+            .enumerate()
+            .take_while(|(i, item)| {
+                let tree = unsafe { col_trees[*i].get(**item as usize) };
+                if tree.is_some() {
+                    // possib_nodes[*i] = tree;
+                    mem::replace(&mut possib_nodes[*i], tree);
+                    true
+                } else {
+                    false
+                }
+            })
+            .count();
+
+        // If not all nodes were found, skip this row
+        if count < COLS {
+            return;
+        }
+
+        if rows.len() > 1 {
+            iter_search(&rows[1..], &possib_nodes, &row_counts[1..]);
+        } else {
+            // println!("FOUND SOMETHING, STOPPING!!!!");
+            // ::std::process::exit(0);
+        }
+    });
 }
 
 /// Attempt to brute force the solution
 fn bruteforce(field: Field) {
-    // Generate row and column possibilities
-    println!("Generating row/column candidates...");
-    let rows = generate_row_possibilities(&field);
-    let cols = generate_col_possibilities(&field);
+    println!("Generate row/column candidates...");
 
-    // Print row/column possibilities we've found, show some stats
+    // Generate row possibilities
+    let rows = generate_row_possibilities(&field);
     println!("Row stats:");
     let mut checks = 1.to_biguint().unwrap();
-    for (r, row) in rows.iter().enumerate() {
-        println!("- Row #{} possibilities: {}", r, row.len());
-        checks *= row.len().to_biguint().unwrap();
+    let row_counts: Vec<usize> = rows.iter().map(|row| row.len()).collect();
+    for (r, count) in row_counts.iter().enumerate() {
+        println!("- Row #{} possibilities: {}", r, count);
+        checks *= count.to_biguint().unwrap();
     }
-    println!("- Total possibilities: {}", checks);
+    println!("- Total possibilities: {}\n", checks);
+
+    // Generate column possibilities
+    let cols = generate_col_possibilities(&field);
     println!("Column stats:");
     let mut checks = 1.to_biguint().unwrap();
     for (c, col) in cols.iter().enumerate() {
         println!("- Column #{} possibilities: {}", c, col.len());
         checks *= col.len().to_biguint().unwrap();
     }
-    println!("- Total possibilities: {}", checks);
+    println!("- Total possibilities: {}\n", checks);
 
-    println!("Building column possibility trees...");
+    println!("Build column possibility trees...");
     let col_trees: Vec<Node> = cols
         .par_iter()
-        .map(|row| {
+        .map(|col| {
             let mut tree = Node::None;
-            for possib in row {
+            for possib in col {
                 let mut parent = &mut tree;
                 for item in possib {
-                    parent = parent.set(*item as usize);
+                    parent = unsafe { parent.set(*item as usize) };
                 }
             }
             tree
         })
         .collect();
-    println!("Done building trees");
-    println!("TREE: {:?}", col_trees);
+    println!("Done building trees\n");
 
-    println!("Finding candidates for column chunks...\n");
-
-    println!("All hell breaks loose!");
-
-    // For each chunk, collect all candidates
-    let chunk_candidates: Vec<Vec<Vec<&[u8; ROWS]>>> = cols
-        .par_chunks(4)
-        .map(|chunk_cols| {
-            chunk_cols
-                .iter()
-                .multi_cartesian_product()
-                .filter(|chunk_cols| {
-                    (0..ROWS).into_par_iter().all(|r| {
-                        let mut map = HashMap::new();
-                        chunk_cols
-                            .iter()
-                            .for_each(|cells| *map.entry(cells[r]).or_insert(0) += 1);
-                        map.into_iter().all(|(item, count)| {
-                            if let Some(band_max) = field.left_bands[r].map.get(&item) {
-                                count <= *band_max
-                            } else {
-                                false
-                            }
-                        })
-                    })
-                })
-                .inspect(|chunk| println!("Chunk: {:?}", chunk))
-                .collect()
-        })
-        .collect();
-
-    // Print the results
-    println!("Candidates for chunks:");
-    let mut checks = 1.to_biguint().unwrap();
-    for (c, chunk) in chunk_candidates.iter().enumerate() {
-        println!("- #{}, candidates: {}", c, chunk.len());
-        checks *= chunk.len().to_biguint().unwrap();
-    }
-    println!("Finding candidates for whole fields...\n");
-    println!("Possibilities to check: {}", checks);
-
-    chunk_candidates
-        .into_iter()
-        .multi_cartesian_product()
-        .filter(|chunks| {
-            (0..COLS).into_par_iter().all(|c| {
-                let mut map = HashMap::new();
-                chunks
-                    .iter()
-                    .flatten()
-                    .for_each(|cells| *map.entry(cells[c]).or_insert(0) += 1);
-                map == field.top_bands[c].map
-            })
-        })
-        .for_each(|chunks| {
-            let vec = chunks
-                .iter()
-                .flatten()
-                .flat_map(|cols| cols.into_iter())
-                .cloned()
-                .collect();
-            let matrix: NMatrix = Matrix::new(vec);
-            println!("FOUND SOLUTION:\n{}", matrix);
-        });
+    // Get a reference to all column tree nodes
+    let tree_nodes: Vec<&Node> = col_trees.iter().collect();
+    iter_search(&rows, &tree_nodes, &row_counts);
 
     println!("DONE");
 }
