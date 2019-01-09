@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fs::read_to_string;
 use std::io::Result as IoResult;
+use std::mem;
 use std::ops::{Index, IndexMut};
+use std::ptr;
 
 use itertools::Itertools;
 use num_bigint::ToBigUint;
@@ -1291,52 +1293,191 @@ mod tests {
     }
 }
 
-/// Attempt to brute force the solution
-fn bruteforce(field: Field) {
-    println!("Generating column candidates...");
+type Row = [u8; COLS];
+type Col = [u8; ROWS];
 
+/// For each line in `lines`, return a vector with all possible combinations on that line.
+/// The given `lines` iterator must yield an iterator over the item candidates for a cell.
+/// The list of possibilities for each line is sorted.
+fn generate_line_possibilities(field: &Field, rows: bool)
+    -> Vec<Vec<Vec<u8>>>
+{
     // Collect the collumn possibilities
-    let cols = field
-        .possibilities
-        .iter_cols_iter()
-        .enumerate()
-        .collect::<Vec<_>>();
-    let cols: Vec<Vec<[u8; ROWS]>> = cols
+    let lines: Vec<Vec<Vec<u8>>> = if rows {
+            field
+                .possibilities
+                .iter_rows()
+                .map(|cell| cell.to_vec())
+                .collect::<Vec<_>>()
+        } else {
+            field
+                .possibilities
+                .iter_cols()
+                .map(|cell| cell.into_iter().cloned().collect())
+                .collect::<Vec<_>>()
+        };
+
+    let mut lines: Vec<Vec<Vec<u8>>> = lines
         .into_par_iter()
-        .map(|(c, col)| {
-            col.enumerate()
-                .map(|(r, p)| {
-                    if p.is_empty() {
-                        vec![field.field[(r, c)]]
+        .enumerate()
+        .map(|(x, cell_possibs)| {
+            cell_possibs
+                .into_iter()
+                .enumerate()
+                .map(|(y, possibs)| {
+                    // Get the unique candidates, or the current value
+                    if possibs.is_empty() {
+                        vec![field.field[if rows { (x, y) } else { (y, x) }]]
                     } else {
-                        p.into_iter().unique().map(|p| *p).collect()
+                        possibs.into_iter().unique().map(|x| x).collect()
                     }
                 })
                 .multi_cartesian_product()
                 .filter(|cells| {
-                    field.top_bands[c].map.iter().all(|(item, count)| {
+                    // Find the current band
+                    let band: &Band = if rows {
+                        &field.left_bands[x]
+                    } else {
+                        &field.top_bands[x]
+                    };
+
+                    // Make sure all band items are used
+                    band.map.iter().all(|(item, count)| {
                         cells.iter().filter(|c| c == &item).count() as u8 == *count
                     })
                 })
-                .map(|cells| {
-                    let mut a = [0; ROWS];
-                    a.copy_from_slice(&cells);
-                    a
+                .map(|mut cells| {
+                    cells.iter_mut().for_each(|cell| *cell -= 1);
+                    cells
                 })
                 .collect()
         })
         .collect();
 
-    // Print the results
-    println!("Candidates for columns:");
+    // Sort each line
+    lines.iter_mut().for_each(|col| col.par_sort_unstable());
+
+    lines
+}
+
+fn generate_row_possibilities(field: &Field) -> Vec<Vec<Row>> {
+    generate_line_possibilities(field, true)
+        .into_par_iter()
+        .map(|row| {
+            row.into_iter().map(|possib| {
+                let mut arr = Row::default();
+                arr.copy_from_slice(&possib);
+                arr
+            }).collect()
+        })
+        .collect()
+}
+
+fn generate_col_possibilities(field: &Field) -> Vec<Vec<Col>> {
+    generate_line_possibilities(field, false)
+        .into_par_iter()
+        .map(|row| {
+            row.into_iter().map(|possib| {
+                let mut arr = Col::default();
+                arr.copy_from_slice(&possib);
+                arr
+            }).collect()
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone)]
+enum Node {
+    Some(Box<[Self; 26]>),
+    None,
+}
+
+impl Node {
+    /// Construct a new `Some` value.
+    fn empty_some() -> Node {
+        Node::Some(Box::new(Self::new_arr()))
+    }
+
+    /// Construct a new tree array, used in a `Some` value.
+    fn new_arr() -> [Self; 26] {
+        unsafe {
+            let mut arr: [Self; 26] = mem::uninitialized();
+            for e in arr.iter_mut() {
+                ptr::write(e, Node::None);
+            }
+            arr
+        }
+    }
+
+    // TODO: get_unchecked
+    #[inline(always)]
+    fn get<'a>(&'a self, item: usize) -> &'a Self {
+        match self {
+            Node::Some(items) => &items[item],
+            n => n,
+        }
+    }
+
+    // TODO: get_unchecked_mut
+    #[inline(always)]
+    fn set<'a>(&'a mut self, item: usize) -> &'a mut Self {
+        match self {
+            Node::Some(items) => {
+                let place = &mut items[item];
+                *place = Self::empty_some();
+                place
+            },
+            Node::None => {
+                mem::replace(self, Self::empty_some());
+                self.set(item)
+            },
+        }
+    }
+}
+
+/// Attempt to brute force the solution
+fn bruteforce(field: Field) {
+    // Generate row and column possibilities
+    println!("Generating row/column candidates...");
+    let rows = generate_row_possibilities(&field);
+    let cols = generate_col_possibilities(&field);
+
+    // Print row/column possibilities we've found, show some stats
+    println!("Row stats:");
+    let mut checks = 1.to_biguint().unwrap();
+    for (r, row) in rows.iter().enumerate() {
+        println!("- Row #{} possibilities: {}", r, row.len());
+        checks *= row.len().to_biguint().unwrap();
+    }
+    println!("- Total possibilities: {}", checks);
+    println!("Column stats:");
     let mut checks = 1.to_biguint().unwrap();
     for (c, col) in cols.iter().enumerate() {
-        println!("- #{}, candidates: {}", c, col.len());
+        println!("- Column #{} possibilities: {}", c, col.len());
         checks *= col.len().to_biguint().unwrap();
     }
+    println!("- Total possibilities: {}", checks);
+
+    println!("Building column possibility trees...");
+    let col_trees: Vec<Node> = cols
+        .par_iter()
+        .map(|row| {
+            let mut tree = Node::None;
+            for possib in row {
+                let mut parent = &mut tree;
+                for item in possib {
+                    parent = parent.set(*item as usize);
+                }
+            }
+            tree
+        })
+        .collect();
+    println!("Done building trees");
+    println!("TREE: {:?}", col_trees);
+
+
     println!("Finding candidates for column chunks...\n");
 
-    println!("Possibilities to check: {}", checks);
     println!("All hell breaks loose!");
 
     // For each chunk, collect all candidates
