@@ -1,6 +1,7 @@
 #![feature(vec_remove_item, shrink_to)]
 
 extern crate itertools;
+extern crate num_bigint;
 extern crate rayon;
 
 use std::cmp::{max, min};
@@ -11,6 +12,7 @@ use std::io::Result as IoResult;
 use std::ops::{Index, IndexMut};
 
 use itertools::Itertools;
+use num_bigint::ToBigUint;
 use rayon::prelude::*;
 
 const EMPTY: char = '.';
@@ -37,7 +39,7 @@ fn main() {
     }
 
     // Attempt to brute force
-    println!("Starting brute force attempt!");
+    println!("\nStarting brute force attempt!");
     bruteforce(field);
 }
 
@@ -1327,27 +1329,32 @@ fn bruteforce(field: Field) {
 
     // Print the results
     println!("Candidates for columns:");
+    let mut checks = 1.to_biguint().unwrap();
     for (c, col) in cols.iter().enumerate() {
         println!("- #{}, candidates: {}", c, col.len());
+        checks *= col.len().to_biguint().unwrap();
     }
-    println!("Finding candidates for column chunks...");
+    println!("Finding candidates for column chunks...\n");
+
+    println!("Possibilities to check: {}", checks);
+    println!("All hell breaks loose!");
 
     // For each chunk, collect all candidates
     let chunk_candidates: Vec<Vec<Vec<&[u8; ROWS]>>> = cols
-        .par_chunks(2)
+        .par_chunks(4)
         .map(|chunk_cols| {
             chunk_cols
                 .iter()
                 .multi_cartesian_product()
-                .filter(|chunk| {
-                    (0..COLS).into_par_iter().all(|c| {
+                .filter(|chunk_cols| {
+                    (0..ROWS).into_par_iter().all(|r| {
                         let mut map = HashMap::new();
-                        chunk
+                        chunk_cols
                             .iter()
-                            .for_each(|cells| *map.entry(cells[c]).or_insert(0) += 1);
+                            .for_each(|cells| *map.entry(cells[r]).or_insert(0) += 1);
                         map.into_iter().all(|(item, count)| {
-                            if let Some(item) = field.top_bands[c].map.get(&item) {
-                                item >= &count
+                            if let Some(band_max) = field.left_bands[r].map.get(&item) {
+                                count <= *band_max
                             } else {
                                 false
                             }
@@ -1359,8 +1366,15 @@ fn bruteforce(field: Field) {
         })
         .collect();
 
-    println!("Done collecting all chunks");
-    println!("Finding candidates for whole fields");
+    // Print the results
+    println!("Candidates for chunks:");
+    let mut checks = 1.to_biguint().unwrap();
+    for (c, chunk) in chunk_candidates.iter().enumerate() {
+        println!("- #{}, candidates: {}", c, chunk.len());
+        checks *= chunk.len().to_biguint().unwrap();
+    }
+    println!("Finding candidates for whole fields...\n");
+    println!("Possibilities to check: {}", checks);
 
     chunk_candidates
         .into_iter()
