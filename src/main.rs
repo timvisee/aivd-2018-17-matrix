@@ -12,6 +12,10 @@ use std::io::Result as IoResult;
 use std::mem;
 use std::ops::{Index, IndexMut};
 use std::ptr;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
+};
 
 use itertools::Itertools;
 use num_bigint::ToBigUint;
@@ -1451,12 +1455,12 @@ impl Node {
 }
 
 #[inline(always)]
-fn iter_search(rows: &[Vec<Row>], col_trees: &[&Node], row_counts: &[usize]) {
-    rows[0].par_iter().enumerate().for_each(|(i, possib)| {
-        if rows.len() >= 11 {
-            println!("#{} -> {} / {}", rows.len(), i, row_counts[0]);
-        }
+fn iter_search(rows: &[Vec<Row>], col_trees: &[&Node], row_counts: &[usize], parent_row: usize, progress: &ProgressManager) {
+    let row_count = rows.len();
+    let is_progress_major = row_count == 12;
+    let is_progress_minor = row_count == 11;
 
+    rows[0].par_iter().enumerate().for_each(|(i, possib)| {
         // Build a map with nodes for this possibility from the given trees
         let mut possib_nodes = [
             &Node::None,
@@ -1494,11 +1498,18 @@ fn iter_search(rows: &[Vec<Row>], col_trees: &[&Node], row_counts: &[usize]) {
             return;
         }
 
-        if rows.len() > 1 {
-            iter_search(&rows[1..], &possib_nodes, &row_counts[1..]);
+        if row_count > 1 {
+            iter_search(&rows[1..], &possib_nodes, &row_counts[1..], i, progress);
         } else {
             // println!("FOUND SOMETHING, STOPPING!!!!");
             // ::std::process::exit(0);
+        }
+
+        // Increase the progress
+        if is_progress_minor {
+            progress.increase_minor(parent_row);
+        } else if is_progress_major {
+            progress.increase_major(i);
         }
     });
 }
@@ -1544,9 +1555,78 @@ fn bruteforce(field: Field) {
         .collect();
     println!("Done building trees\n");
 
+    // Build a progress manager
+    let progress = ProgressManager::new(row_counts[0], row_counts[1]);
+
     // Get a reference to all column tree nodes
     let tree_nodes: Vec<&Node> = col_trees.iter().collect();
-    iter_search(&rows, &tree_nodes, &row_counts);
+    progress.report_progress();
+    iter_search(&rows, &tree_nodes, &row_counts, 0, &progress);
 
     println!("DONE");
+}
+
+struct ProgressManager {
+    /// The major progress, the number of completed rows
+    rows_completed: AtomicUsize,
+
+    /// The minor progress for each active row.
+    rows_progress: Mutex<HashMap<usize, usize>>,
+
+    major_max: usize,
+    minor_max: usize,
+}
+
+impl ProgressManager {
+    fn new(major_max: usize, minor_max: usize) -> Self {
+        Self {
+            rows_completed: AtomicUsize::new(0),
+            rows_progress: Mutex::new(HashMap::new()),
+            major_max,
+            minor_max,
+        }
+    }
+
+    /// Increase the minor, being part of the given major row.
+    fn increase_minor(&self, parent_row: usize) {
+        *self.rows_progress
+            .lock()
+            .unwrap()
+            .entry(parent_row)
+            .or_insert(0) += 1;
+
+        self.report_progress();
+    }
+
+    /// Increase the major, a major row has been completed.
+    fn increase_major(&self, row: usize) {
+        // Resolve the minor value
+        self.rows_progress
+            .lock()
+            .unwrap()
+            .remove(&row);
+
+        // Increase the rows completed
+        self.rows_completed.fetch_add(1, Ordering::SeqCst);
+
+        self.report_progress();
+    }
+
+    fn report_progress(&self) {
+        // Calculate the major and minor progress
+        let major = self.rows_completed.load(Ordering::SeqCst) * self.minor_max;
+        let minor = self.rows_progress.lock()
+            .unwrap()
+            .values()
+            .sum::<usize>();
+        let progress = major + minor;
+
+        // Determine maximum progress
+        let max = self.major_max * self.minor_max;
+
+        // Calculate percentage
+        let percent = progress as f32 / max as f32 * 100f32;
+
+        println!("# {} / {} = {}%", progress, max, percent);
+    }
 }
