@@ -1455,7 +1455,15 @@ impl Node {
 }
 
 #[inline(always)]
-fn iter_search(field: &Field, rows: &[Vec<Row>], row: usize, row_indices: [usize; ROWS], col_trees: &[&Node], parent_row: usize, progress: &ProgressManager) {
+fn iter_search(
+    field: &Field,
+    rows: &[Vec<Row>],
+    row: usize,
+    row_indices: [usize; ROWS],
+    col_trees: &[&Node],
+    parent_row: usize,
+    progress: &ProgressManager,
+) {
     let is_progress_major = row == 0;
     let is_progress_minor = row == 1;
 
@@ -1503,7 +1511,15 @@ fn iter_search(field: &Field, rows: &[Vec<Row>], row: usize, row_indices: [usize
 
         // Search deeper or check for completion
         if row < ROWS - 1 {
-            iter_search(field, &rows, row + 1, row_indices, &possib_nodes, i, progress);
+            iter_search(
+                field,
+                &rows,
+                row + 1,
+                row_indices,
+                &possib_nodes,
+                i,
+                progress,
+            );
         } else {
             // Obtain the rows for this field, collect the items, build a matrix
             let items: Vec<u8> = row_indices
@@ -1613,7 +1629,8 @@ impl ProgressManager {
 
     /// Increase the minor, being part of the given major row.
     fn increase_minor(&self, parent_row: usize) {
-        *self.rows_progress
+        *self
+            .rows_progress
             .lock()
             .unwrap()
             .entry(parent_row)
@@ -1625,10 +1642,7 @@ impl ProgressManager {
     /// Increase the major, a major row has been completed.
     fn increase_major(&self, row: usize) {
         // Resolve the minor value
-        self.rows_progress
-            .lock()
-            .unwrap()
-            .remove(&row);
+        self.rows_progress.lock().unwrap().remove(&row);
 
         // Increase the rows completed
         self.rows_completed.fetch_add(1, Ordering::SeqCst);
@@ -1639,10 +1653,7 @@ impl ProgressManager {
     fn report_progress(&self) {
         // Calculate the major and minor progress
         let major = self.rows_completed.load(Ordering::SeqCst) * self.minor_max;
-        let minor = self.rows_progress.lock()
-            .unwrap()
-            .values()
-            .sum::<usize>();
+        let minor = self.rows_progress.lock().unwrap().values().sum::<usize>();
         let progress = major + minor;
 
         // Determine maximum progress
