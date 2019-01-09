@@ -210,7 +210,7 @@ impl fmt::Display for Matrix<u8> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Band {
     /// A key-value map with `item > count`.
     map: HashMap<u8, u8>,
@@ -267,7 +267,7 @@ impl Band {
 }
 
 /// A set of bands.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BandSet {
     pub bands: Vec<Band>,
 }
@@ -1455,12 +1455,11 @@ impl Node {
 }
 
 #[inline(always)]
-fn iter_search(rows: &[Vec<Row>], col_trees: &[&Node], row_counts: &[usize], parent_row: usize, progress: &ProgressManager) {
-    let row_count = rows.len();
-    let is_progress_major = row_count == 12;
-    let is_progress_minor = row_count == 11;
+fn iter_search(field: &Field, rows: &[Vec<Row>], row: usize, row_indices: [usize; ROWS], col_trees: &[&Node], parent_row: usize, progress: &ProgressManager) {
+    let is_progress_major = row == 0;
+    let is_progress_minor = row == 1;
 
-    rows[0].par_iter().enumerate().for_each(|(i, possib)| {
+    rows[row].par_iter().enumerate().for_each(|(i, possib)| {
         // Build a map with nodes for this possibility from the given trees
         let mut possib_nodes = [
             &Node::None,
@@ -1498,11 +1497,33 @@ fn iter_search(rows: &[Vec<Row>], col_trees: &[&Node], row_counts: &[usize], par
             return;
         }
 
-        if row_count > 1 {
-            iter_search(&rows[1..], &possib_nodes, &row_counts[1..], i, progress);
+        // Update the row indices
+        let mut row_indices = row_indices;
+        row_indices[row] = i;
+
+        // Search deeper or check for completion
+        if row < ROWS - 1 {
+            iter_search(field, &rows, row + 1, row_indices, &possib_nodes, i, progress);
         } else {
-            // println!("FOUND SOMETHING, STOPPING!!!!");
-            // ::std::process::exit(0);
+            // Obtain the rows for this field, collect the items, build a matrix
+            let items: Vec<u8> = row_indices
+                .into_iter()
+                .enumerate()
+                .flat_map(|(i, row_index)| rows[i][*row_index].into_iter())
+                .map(|x| x + 1)
+                .collect();
+            let matrix = Matrix::new(items);
+
+            // Count rows and columns
+            let solution_left_bands = BandSet::from(matrix.iter_rows_iter());
+            let solution_top_bands = BandSet::from(matrix.iter_cols_iter());
+
+            // Test for success
+            if field.left_bands == solution_left_bands && field.top_bands == solution_top_bands {
+                println!("\nFOUND SOLUTION:\n{}\n", matrix);
+            } else {
+                println!("Invalid");
+            }
         }
 
         // Increase the progress
@@ -1560,8 +1581,11 @@ fn bruteforce(field: Field) {
 
     // Get a reference to all column tree nodes
     let tree_nodes: Vec<&Node> = col_trees.iter().collect();
+
+    // Actually start the brute forcing attempt
+    let row_indices = [0; ROWS];
     progress.report_progress();
-    iter_search(&rows, &tree_nodes, &row_counts, 0, &progress);
+    iter_search(&field, &rows, 0, row_indices, &tree_nodes, 0, &progress);
 
     println!("DONE");
 }
