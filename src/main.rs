@@ -36,6 +36,20 @@ fn main() {
         Matrix::load("res/matrix_top.txt").expect("failed to load top matrix from file");
     let mut field = Field::empty(matrix_left, matrix_top);
 
+    // Set sentence on first row
+    field.solved_cell(0, 0, to_number('I'));
+    field.solved_cell(0, 1, to_number('N'));
+    field.solved_cell(0, 2, to_number('X'));
+    field.solved_cell(0, 3, to_number('H'));
+    field.solved_cell(0, 4, to_number('E'));
+    field.solved_cell(0, 5, to_number('T'));
+    field.solved_cell(0, 6, to_number('X'));
+    field.solved_cell(0, 7, to_number('Z'));
+    field.solved_cell(0, 8, to_number('W'));
+    field.solved_cell(0, 9, to_number('A'));
+    field.solved_cell(0, 10, to_number('R'));
+    field.solved_cell(0, 11, to_number('T'));
+
     // Start solving using strategies
     println!("Start solving...");
     if field.solve() {
