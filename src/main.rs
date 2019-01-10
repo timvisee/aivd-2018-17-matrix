@@ -744,7 +744,10 @@ impl Field {
                                         possib.into_iter().for_each(|(item, _)| {
                                             map.entry(item)
                                                 .and_modify(|cur| {
-                                                    *cur = min(*cur + 1, *unit_band.map.get(&item).unwrap_or(&0))
+                                                    *cur = min(
+                                                        *cur + 1,
+                                                        *unit_band.map.get(&item).unwrap_or(&0),
+                                                    )
                                                 })
                                                 .or_insert(1);
                                         });
@@ -872,7 +875,7 @@ impl Field {
                                         possib.into_iter().for_each(|(item, _)| {
                                             map.entry(item)
                                                 .and_modify(|cur| {
-                                                    *cur = min(*cur + 1, unit_band.map[&item])
+                                                    *cur = min(*cur + 1, *unit_band.map.get(&item).unwrap_or(&0))
                                                 })
                                                 .or_insert(1);
                                         });
@@ -887,7 +890,7 @@ impl Field {
                                         possib.into_iter().for_each(|(item, _)| {
                                             map.entry(item)
                                                 .and_modify(|cur| {
-                                                    *cur = min(*cur + 1, unit_band.map[&item])
+                                                    *cur = min(*cur + 1, *unit_band.map.get(&item).unwrap_or(&0))
                                                 })
                                                 .or_insert(1);
                                         });
