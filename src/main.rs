@@ -1520,32 +1520,24 @@ fn iter_search(
                 progress,
             );
         } else {
-            // Do a quick row/column item count check
-            let solution_left_bands = BandSet::from(
+            // Do a quick column item count check
+            let solution_top_bands = BandSet::from((0..COLS).map(|c| {
                 row_indices
                     .into_iter()
                     .enumerate()
-                    .map(|(i, row_index)| rows[i][*row_index].into_iter()),
-            );
-            if field.left_bands == solution_left_bands {
-                let solution_top_bands = BandSet::from((0..COLS).map(|c| {
-                    row_indices
-                        .into_iter()
-                        .enumerate()
-                        .map(move |(i, row_index)| &rows[i][*row_index][c])
-                }));
-                if field.top_bands == solution_top_bands {
-                    // Build the matrix
-                    let items: Vec<u8> = row_indices
-                        .into_iter()
-                        .enumerate()
-                        .flat_map(|(i, row_index)| rows[i][*row_index].into_iter())
-                        .map(|x| x + 1)
-                        .collect();
-                    let matrix = Matrix::new(items);
+                    .map(move |(i, row_index)| &rows[i][*row_index][c])
+            }));
+            if field.top_bands == solution_top_bands {
+                // Build the matrix
+                let items: Vec<u8> = row_indices
+                    .into_iter()
+                    .enumerate()
+                    .flat_map(|(i, row_index)| rows[i][*row_index].into_iter())
+                    .map(|x| x + 1)
+                    .collect();
+                let matrix = Matrix::new(items);
 
-                    println!("\nFOUND SOLUTION:\n{}\n", matrix);
-                }
+                println!("\nFOUND SOLUTION:\n{}\n", matrix);
             }
         }
 
