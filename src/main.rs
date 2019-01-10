@@ -5,7 +5,7 @@ extern crate num_bigint;
 extern crate rayon;
 
 use std::cmp::{max, min};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::read_to_string;
 use std::io::Result as IoResult;
@@ -693,7 +693,7 @@ impl Field {
     /// Inspired by: http://www.sudokuwiki.org/Naked_Candidates#NT
     fn solve_naked_combis(&mut self) -> bool {
         // Find all cell combinations on a line that would use all their candidates
-        let combis: Vec<(Vec<(usize, usize)>, HashMap<u8, u8>)> = (2..max(ROWS, COLS))
+        let combis: Vec<(Vec<(usize, usize)>, HashSet<u8>)> = (2..max(ROWS, COLS))
             .flat_map(|combi_size| {
                 // Build iterators through row/column cell possibilities if theres more cells than
                 // the current combination size
@@ -709,7 +709,7 @@ impl Field {
                         .map(|r| (r, c))
                         .collect::<Vec<_>>()
                 });
-                let lines = rows.chain(cols).filter(|cells| cells.len() > combi_size);
+                let lines = rows.chain(cols).filter(|cells| cells.len() > combi_size - 1);
 
                 // Find combination possibilities on rows and columns
                 lines
@@ -737,25 +737,18 @@ impl Field {
 
                                 // Count possibilities in each cell, always assume each item is
                                 // used once in each cell upto the maximum in that unit band
-                                let combi_used: HashMap<u8, u8> = combi_cells
+                                let combi_used: HashSet<u8> = combi_cells
                                     .iter()
                                     .map(|coord| count_map(&self.possibilities[*coord]))
-                                    .fold(HashMap::new(), |mut map, possib| {
+                                    .fold(HashSet::new(), |mut map, possib| {
                                         possib.into_iter().for_each(|(item, _)| {
-                                            map.entry(item)
-                                                .and_modify(|cur| {
-                                                    *cur = min(
-                                                        *cur + 1,
-                                                        *unit_band.map.get(&item).unwrap_or(&0),
-                                                    )
-                                                })
-                                                .or_insert(1);
+                                            map.insert(item);
                                         });
                                         map
                                     });
 
                                 // Total must not be larger than combination size
-                                if combi_used.values().sum::<u8>() > combi_size as u8 {
+                                if combi_used.len() as u8 > combi_size as u8 {
                                     return None;
                                 }
 
@@ -786,10 +779,7 @@ impl Field {
                 .collect();
 
             // Build a list of used items
-            let used = combi_posibs
-                .into_iter()
-                .flat_map(|(item, count)| vec![item; count as usize])
-                .collect();
+            let used = combi_posibs.into_iter().collect();
 
             // Retain used items in combination from other cells in same line
             if self.eliminate_candidates(line_cells, &used) {
