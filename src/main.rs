@@ -1501,6 +1501,13 @@ fn iter_search(
 
         // If not all nodes were found, skip this row
         if count < COLS {
+            // Increase the progress
+            if is_progress_minor {
+                progress.increase_minor(parent_row);
+            } else if is_progress_major {
+                progress.increase_major(i);
+            }
+
             return;
         }
 
