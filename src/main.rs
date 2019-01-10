@@ -728,13 +728,6 @@ impl Field {
                                     return None;
                                 }
 
-                                // Find the left or top band for the unit, aligned with all cells
-                                let unit_band = if combi_cells[0].0 == combi_cells[1].0 {
-                                    &self.left_bands[combi_cells[0].0]
-                                } else {
-                                    &self.top_bands[combi_cells[0].1]
-                                };
-
                                 // Count possibilities in each cell, always assume each item is
                                 // used once in each cell upto the maximum in that unit band
                                 let combi_used: HashSet<u8> = combi_cells
