@@ -730,7 +730,7 @@ impl Field {
                                         possib.into_iter().for_each(|(item, _)| {
                                             map.entry(item)
                                                 .and_modify(|cur| {
-                                                    *cur = min(*cur + 1, unit_band.map[&item])
+                                                    *cur = min(*cur + 1, *unit_band.map.get(&item).unwrap_or(&0))
                                                 })
                                                 .or_insert(1);
                                         });
@@ -1559,7 +1559,7 @@ fn iter_search(
 
 /// Attempt to brute force the solution
 fn bruteforce(field: Field) {
-    println!("Generate row/column candidates...");
+    println!("Generate all possible row/column variants...");
 
     // Generate row possibilities
     let rows = generate_row_possibilities(&field);
